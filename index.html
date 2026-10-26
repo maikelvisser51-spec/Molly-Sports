@@ -15,7 +15,7 @@
 <div id="dataNotice" class="notice">Beperkt tot jullie diensten: ESPN, Ziggo Sport, Viaplay, reguliere tv en Prime Video.</div>
 <div class="tabs"><button id="tabEvents" class="btn primary" onclick="showTab('events')">⚽ Sportprogramma</button><button id="tabSetup" class="btn" onclick="showTab('setup')">📦 Kastjes & apps</button><button id="tabManage" class="btn" onclick="showTab('manage')">＋ Eigen evenement</button></div>
 <section id="events">
-<div class="section"><h2>Filter</h2><div class="filters" id="filters"></div></div>
+<div class="section"><h2>Periode</h2><div class="filters" id="periodFilters"></div><h2>Filter op dienst</h2><div class="filters" id="filters"></div></div>
 <div class="row between"><h2 id="listTitle">Vandaag & live</h2><span id="count" class="smallmuted"></span></div>
 <div id="matches" class="matchgrid"></div>
 <div class="source">Automatische wedstrijddata is een hulpmiddel, geen bevestiging van Nederlandse uitzendrechten. Controleer de dienst bij twijfel.</div>
@@ -28,7 +28,7 @@
 <div class="field"><label for="deviceApps">Beschikbare apps</label><input id="deviceApps" placeholder="Bijv. Ziggo TV, Viaplay"></div>
 <div class="field wide"><label for="deviceNote">Notitie</label><input id="deviceNote" placeholder="Bijv. afstandsbediening ligt in la"></div>
 </div><button class="btn primary" onclick="saveDevice()">Instelling opslaan</button></div>
-<div class="admin"><h3>Basis uit het oorspronkelijke schema</h3><p class="smallmuted">Ziggo Next Mini: Ziggo TV. Chromecast: Ziggo TV, Viaplay, Prime Video en Yodeck (digitale borden), voor zover de apps geïnstalleerd en aangemeld zijn.</p><p class="smallmuted">Jullie schema koppelt ESPN aan Nederlandse competitie en American Football; Ziggo Sport aan MotoGP, Spaans/Italiaans voetbal en rugby; Viaplay aan F1, darts en Engels/Duits voetbal. Prime Video staat genoteerd voor Engels voetbal op zaterdag om 13.30 uur. Dit zijn richtlijnen uit jullie schema, geen garantie op iedere specifieke wedstrijd.</p></div>
+<div class="admin"><h3>Basis uit het oorspronkelijke schema</h3><p class="smallmuted">Ziggo Next Mini: Ziggo TV én de Viaplay-app (met actief Viaplay-abonnement en ingelogd account). Chromecast: Ziggo TV, Viaplay, Prime Video en Yodeck (digitale borden), voor zover de apps geïnstalleerd en aangemeld zijn.</p><p class="smallmuted">Jullie schema koppelt ESPN aan Nederlandse competitie en American Football; Ziggo Sport aan MotoGP, Spaans/Italiaans voetbal en rugby; Viaplay aan F1, darts en Engels/Duits voetbal. Prime Video staat genoteerd voor Engels voetbal op zaterdag om 13.30 uur. Dit zijn richtlijnen uit jullie schema, geen garantie op iedere specifieke wedstrijd.</p></div>
 </section>
 <section id="manage" class="hidden">
 <div class="admin"><h3>Eigen evenement toevoegen</h3><p class="smallmuted">Voor Formule 1, darts, rugby, American football of een specifieke uitzending. Dit vult de ontbrekende sportdata aan; het is geen automatische feed.</p>
@@ -47,7 +47,10 @@
 </main>
 <script>
 const SPORT_FILTERS=['Alles','Live','ESPN','Ziggo Sport','Viaplay','Reguliere tv','Prime Video'];
-let activeFilter='Alles',apiMatches=[],apiState='loading';
+let activeFilter='Alles',activePeriod='Komende 7 dagen',apiMatches=[],apiState='loading';
+const PERIODS=['Vandaag','Komende 7 dagen','Recente uitslagen'];
+function renderPeriods(){document.getElementById('periodFilters').innerHTML=PERIODS.map(p=>`<button class="chip ${p===activePeriod?'active':''}" onclick="setPeriod('${p}')">${p}</button>`).join('')}
+function setPeriod(p){activePeriod=p;renderPeriods();renderMatches()}
 const emoji={'Voetbal':'⚽','Formule 1':'🏁','Darts':'🎯','Rugby':'🏉','American football':'🏈','Overig':'📺'};
 const statusMap={'live':'LIVE','inprogress':'LIVE','in_progress':'LIVE','in-play':'LIVE','in_play':'LIVE','finished':'AFGELOPEN','complete':'AFGELOPEN','completed':'AFGELOPEN','notstarted':'GEPLAND','scheduled':'GEPLAND','upcoming':'GEPLAND','ns':'GEPLAND','not_started':'GEPLAND'};
 function localGet(k, fallback){try{return JSON.parse(localStorage.getItem(k)||JSON.stringify(fallback))}catch(e){return fallback}}
@@ -84,51 +87,34 @@ function normalizeApi(m){
  return {id:'api-'+(m.id||m.url||home+away+time),sport:'Voetbal',name:home+' – '+away,league:typeof comp==='string'?comp:(comp.name||'Voetbal'),status,rawStatus:s,time,score:(homeScore!=null&&awayScore!=null)?`${homeScore} – ${awayScore}`:'',service,device:deviceFor(service),note:service==='Nog controleren'?'Nederlandse zender niet bevestigd; controleer de tv-gids.':'Controleer voor de zekerheid de actuele Nederlandse tv-gids.',url:m.url?('https://sportscore.com'+m.url):'https://sportscore.com/',source:'Sportdata'}
 }
 async function refreshData(){
- document.getElementById('updated').textContent='Wedstrijden van vandaag worden opgehaald…';
- const day=new Date(), yyyy=day.getFullYear(), mm=String(day.getMonth()+1).padStart(2,'0'), dd=String(day.getDate()).padStart(2,'0');
- const today=`${yyyy}-${mm}-${dd}`;
+ document.getElementById('updated').textContent='Wedstrijden voor vandaag en de komende dagen worden opgehaald…';
+ const fmt=d=>`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
  try{
-  let j=null, lastError=null;
-  for(const url of [
-   `https://sportscore.com/api/v1/fixtures/?sport=football&date=${today}&status=upcoming&limit=100`,
-   `https://sportscore.com/api/v1/fixtures/?sport=football&date=${today}&limit=100`
-  ]){
-   try{
-    const r=await fetch(url,{cache:'no-store'});
-    if(!r.ok)throw new Error('HTTP '+r.status);
-    const candidate=await r.json();
-    const list=Array.isArray(candidate)?candidate:(candidate.fixtures||candidate.matches||candidate.data||candidate.results);
-    if(Array.isArray(list)){j={matches:list,updated:candidate.updated||new Date().toISOString()};break}
-    throw new Error('Onverwachte gegevensstructuur');
-   }catch(e){lastError=e}
+  const requests=[]; const now=new Date();
+  for(let offset=-2;offset<=7;offset++){
+   const d=new Date(now);d.setDate(now.getDate()+offset); const date=fmt(d);
+   requests.push((async()=>{for(const url of [
+    `https://sportscore.com/api/v1/fixtures/?sport=football&date=${date}&limit=100`,
+    `https://sportscore.com/api/v1/fixtures/?sport=football&date=${date}&status=${offset<0?'finished':'upcoming'}&limit=100`
+   ]){try{const r=await fetch(url,{cache:'no-store'});if(!r.ok)continue;const j=await r.json();const list=Array.isArray(j)?j:(j.fixtures||j.matches||j.data||j.results);if(Array.isArray(list))return list}catch(e){}}return []})());
   }
-  if(!j){
-   const r=await fetch('https://sportscore.com/api/widget/matches/?sport=football&limit=50',{cache:'no-store'});
-   if(!r.ok)throw lastError||new Error('HTTP '+r.status);
-   const candidate=await r.json();
-   if(!Array.isArray(candidate.matches))throw new Error('Onverwacht antwoord');
-   j={matches:candidate.matches,updated:candidate.updated||new Date().toISOString()};
-  }
-  apiMatches=(j.matches||[]).map(normalizeApi).filter(m=>m.service!=='Nog controleren');
-  apiState='ok';
-  document.getElementById('updated').textContent='Wedstrijden bijgewerkt: '+new Date().toLocaleTimeString('nl-NL',{hour:'2-digit',minute:'2-digit'});
-  document.getElementById('dataNotice').className='notice good';
-  document.getElementById('dataNotice').innerHTML='✓ Wedstrijden van vandaag opgehaald. Alleen competities die aan jullie diensten gekoppeld kunnen worden, worden getoond. De Nederlandse zender moet bij twijfel worden gecontroleerd.';
- }catch(e){
-  apiState='error';document.getElementById('updated').textContent='Sportdata tijdelijk niet bereikbaar';
-  document.getElementById('dataNotice').className='notice';
-  document.getElementById('dataNotice').textContent='De automatische wedstrijdagenda kon niet worden geladen. Druk op Vernieuwen of voeg een evenement handmatig toe.';
- }
+  const groups=await Promise.all(requests);const seen=new Set();
+  apiMatches=groups.flat().map(normalizeApi).filter(m=>{const k=m.id+'|'+m.time;if(seen.has(k))return false;seen.add(k);return true});
+  apiState='ok';document.getElementById('updated').textContent=`Wedstrijden bijgewerkt: ${new Date().toLocaleTimeString('nl-NL',{hour:'2-digit',minute:'2-digit'})}`;
+  document.getElementById('dataNotice').className='notice good';document.getElementById('dataNotice').innerHTML='✓ Wedstrijden uit de komende 7 dagen en recente uitslagen opgehaald. De Nederlandse uitzender kan per wedstrijd verschillen en moet bij twijfel worden gecontroleerd.';
+ }catch(e){apiState='error';document.getElementById('updated').textContent='Sportdata tijdelijk niet bereikbaar';document.getElementById('dataNotice').className='notice';document.getElementById('dataNotice').textContent='De automatische wedstrijdagenda kon niet worden geladen. Druk op Vernieuwen of voeg een evenement handmatig toe.'}
  renderMatches();
 }
 function renderMatches(){
  const manual=getManual().map(x=>({...x,source:'Handmatig'}));
  let all=[...apiMatches,...manual];
+ const now=new Date(); all=all.filter(x=>{if(!x.time)return true;const d=new Date(x.time);if(isNaN(d))return true;if(activePeriod==='Vandaag')return d.toDateString()===now.toDateString();if(activePeriod==='Recente uitslagen')return d<now&&now-d<=3*86400000;return d>=new Date(now.getFullYear(),now.getMonth(),now.getDate())&&d<=new Date(now.getFullYear(),now.getMonth(),now.getDate()+7)});
+ if(activePeriod==='Recente uitslagen')all=all.filter(x=>String(x.status).toLowerCase().includes('afgelopen')||new Date(x.time)<now);
  if(activeFilter==='Live')all=all.filter(x=>String(x.status).toLowerCase().includes('live'));
  else if(activeFilter!=='Alles')all=all.filter(x=>(x.service||'').toLowerCase().includes(activeFilter.toLowerCase()));
  all.sort((a,b)=>{const al=String(a.status).toLowerCase().includes('live')?0:1,bl=String(b.status).toLowerCase().includes('live')?0:1;if(al!==bl)return al-bl;return new Date(a.time||'2100-01-01')-new Date(b.time||'2100-01-01')});
  document.getElementById('count').textContent=all.length+' items';
- document.getElementById('listTitle').textContent=activeFilter==='Alles'?'Uitzendingen uit jullie schema':activeFilter;
+ document.getElementById('listTitle').textContent=activePeriod+' · '+(activeFilter==='Alles'?'Alle diensten':activeFilter);
  if(!all.length){document.getElementById('matches').innerHTML='<div class="empty">Geen wedstrijden in deze selectie. Voeg een evenement toe of vernieuw de data.</div>';return}
  document.getElementById('matches').innerHTML=all.map(x=>{
   const st=String(x.status||'').toLowerCase(),cls=st.includes('live')? 'live':(st.includes('gepland')?'soon':'done');
@@ -136,12 +122,12 @@ function renderMatches(){
  }).join('');
 }
 function esc(v){return String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]))}
-function renderDevices(){let data=localGet('mollyDevices',{'Ziggo Next Mini':{apps:'Ziggo TV',note:''},'Chromecast':{apps:'Ziggo TV, Viaplay, Prime Video, Yodeck',note:'Controleer welke apps geïnstalleerd en aangemeld zijn.'}});document.getElementById('devices').innerHTML=['Ziggo Next Mini','Chromecast'].map(n=>{let d=data[n]||{apps:'Nog invullen',note:''};return `<div class="device"><strong>📦 ${n}</strong><p><b>Apps:</b> ${esc(d.apps||'Nog invullen')}</p><p>${esc(d.note||'Geen notitie')}</p></div>`}).join('');document.getElementById('deviceName').value='Ziggo Next Mini';loadDeviceForm()}
+function renderDevices(){let data=localGet('mollyDevices',{'Ziggo Next Mini':{apps:'Ziggo TV, Viaplay',note:'Viaplay vereist een actief abonnement en een ingelogd account.'},'Chromecast':{apps:'Ziggo TV, Viaplay, Prime Video, Yodeck',note:'Controleer welke apps geïnstalleerd en aangemeld zijn.'}});document.getElementById('devices').innerHTML=['Ziggo Next Mini','Chromecast'].map(n=>{let d=data[n]||{apps:'Nog invullen',note:''};return `<div class="device"><strong>📦 ${n}</strong><p><b>Apps:</b> ${esc(d.apps||'Nog invullen')}</p><p>${esc(d.note||'Geen notitie')}</p></div>`}).join('');document.getElementById('deviceName').value='Ziggo Next Mini';loadDeviceForm()}
 function loadDeviceForm(){let d=localGet('mollyDevices',{})[document.getElementById('deviceName').value]||{};document.getElementById('deviceApps').value=d.apps||'';document.getElementById('deviceNote').value=d.note||''}
 document.getElementById('deviceName').addEventListener('change',loadDeviceForm);
 function saveDevice(){let n=document.getElementById('deviceName').value,d=localGet('mollyDevices',{});d[n]={apps:document.getElementById('deviceApps').value.trim(),note:document.getElementById('deviceNote').value.trim()};localSet('mollyDevices',d);renderDevices();alert('Instelling opgeslagen op dit apparaat.')}
 function addEvent(){let name=document.getElementById('eventName').value.trim();if(!name){alert('Vul een evenementnaam in.');return}let a=getManual();a.push({id:'m-'+Date.now(),sport:document.getElementById('eventSport').value,name,league:'Eigen evenement',time:document.getElementById('eventTime').value,status:document.getElementById('eventStatus').value,service:document.getElementById('eventService').value.trim()||'Nog controleren',device:document.getElementById('eventDevice').value,note:document.getElementById('eventNote').value.trim()});localSet('mollyManualEvents',a);['eventName','eventTime','eventService','eventNote'].forEach(id=>document.getElementById(id).value='');showTab('events');renderFilters();renderMatches()}
 function removeEvent(id){localSet('mollyManualEvents',getManual().filter(x=>x.id!==id));renderMatches()}
 function clearManual(){if(confirm('Alle handmatige evenementen op dit apparaat verwijderen?')){localSet('mollyManualEvents',[]);renderMatches()}}
-const now=new Date();document.getElementById('today').textContent=now.toLocaleDateString('nl-NL',{weekday:'long',day:'numeric',month:'long',year:'numeric'});renderFilters();renderDevices();refreshData();if('serviceWorker' in navigator && location.protocol.startsWith('http'))navigator.serviceWorker.register('./sw.js').catch(()=>{});
+const now=new Date();document.getElementById('today').textContent=now.toLocaleDateString('nl-NL',{weekday:'long',day:'numeric',month:'long',year:'numeric'});renderFilters();renderPeriods();renderDevices();refreshData();if('serviceWorker' in navigator && location.protocol.startsWith('http'))navigator.serviceWorker.register('./sw.js').catch(()=>{});
 </script></body></html>
