@@ -77,10 +77,10 @@ function getTeamName(t, fallback=''){
 function normalizeApi(m){
  let s=String(m.status||m.status_text||m.state||'').toLowerCase();
  let status=statusMap[s]||m.status_text||((s.includes('live')||s.includes('progress'))?'LIVE':(s.includes('finish')||s.includes('complete')?'AFGELOPEN':'GEPLAND'));
- const comp=m.competition||m.league||m.tournament||m.competition_name||'';
- const home=getTeamName(m.home||m.home_team||m.homeTeam,m.home_name||'Thuis');
- const away=getTeamName(m.away||m.away_team||m.awayTeam,m.away_name||'Uit');
- const time=m.time||m.kickoff||m.start_time||m.date||m.utc_time||'';
+ const comp=m.competition||m.league||m.tournament||m.competition_name||m.competitionName||m.league_name||'';
+ const home=getTeamName(m.home||m.home_team||m.homeTeam||m.homeTeamName||m.home_team_name,m.home_name||m.home||'Thuis');
+ const away=getTeamName(m.away||m.away_team||m.awayTeam||m.awayTeamName||m.away_team_name,m.away_name||m.away||'Uit');
+ const time=m.time||m.kickoff||m.start_time||m.date||m.utc_time||m.starting_at||m.scheduled_at||m.fixture_date||'';
  const service=serviceFor(typeof comp==='string'?comp:(comp.name||''));
  const homeScore=m.home_score??m.homeScore??m.scores?.home;
  const awayScore=m.away_score??m.awayScore??m.scores?.away;
@@ -96,12 +96,12 @@ async function refreshData(){
    requests.push((async()=>{for(const url of [
     `https://sportscore.com/api/v1/fixtures/?sport=football&date=${date}&limit=100`,
     `https://sportscore.com/api/v1/fixtures/?sport=football&date=${date}&status=${offset<0?'finished':'upcoming'}&limit=100`
-   ]){try{const r=await fetch(url,{cache:'no-store'});if(!r.ok)continue;const j=await r.json();const list=Array.isArray(j)?j:(j.fixtures||j.matches||j.data||j.results);if(Array.isArray(list))return list}catch(e){}}return []})());
+   ]){try{const r=await fetch(url,{cache:'no-store'});if(!r.ok)continue;const j=await r.json();const pickList=(obj)=>{if(Array.isArray(obj))return obj;if(!obj||typeof obj!=='object')return null;for(const key of ['fixtures','matches','results','data','items']){const found=pickList(obj[key]);if(found)return found}return null};const list=pickList(j);if(Array.isArray(list))return list}catch(e){}}return []})());
   }
   const groups=await Promise.all(requests);const seen=new Set();
   apiMatches=groups.flat().map(normalizeApi).filter(m=>{const k=m.id+'|'+m.time;if(seen.has(k))return false;seen.add(k);return true});
-  apiState='ok';document.getElementById('updated').textContent=`Wedstrijden bijgewerkt: ${new Date().toLocaleTimeString('nl-NL',{hour:'2-digit',minute:'2-digit'})}`;
-  document.getElementById('dataNotice').className='notice good';document.getElementById('dataNotice').innerHTML='✓ Wedstrijden uit de komende 7 dagen en recente uitslagen opgehaald. De Nederlandse uitzender kan per wedstrijd verschillen en moet bij twijfel worden gecontroleerd.';
+  apiState=apiMatches.length?'ok':'empty';document.getElementById('updated').textContent=`Wedstrijddata gecontroleerd: ${new Date().toLocaleTimeString('nl-NL',{hour:'2-digit',minute:'2-digit'})} · ${apiMatches.length} wedstrijden gevonden`;
+  if(apiMatches.length){document.getElementById('dataNotice').className='notice good';document.getElementById('dataNotice').innerHTML=`✓ ${apiMatches.length} wedstrijden opgehaald voor de komende dagen en recente uitslagen. De Nederlandse uitzender kan per wedstrijd verschillen; controleer die bij twijfel.`}else{document.getElementById('dataNotice').className='notice';document.getElementById('dataNotice').textContent='SportScore reageerde, maar er zijn geen wedstrijden ontvangen. Probeer later opnieuw of voeg een evenement handmatig toe.'}
  }catch(e){apiState='error';document.getElementById('updated').textContent='Sportdata tijdelijk niet bereikbaar';document.getElementById('dataNotice').className='notice';document.getElementById('dataNotice').textContent='De automatische wedstrijdagenda kon niet worden geladen. Druk op Vernieuwen of voeg een evenement handmatig toe.'}
  renderMatches();
 }
