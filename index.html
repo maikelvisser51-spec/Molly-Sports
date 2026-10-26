@@ -49,7 +49,7 @@
 const SPORT_FILTERS=['Alles','Live','ESPN','Ziggo Sport','Viaplay','Reguliere tv','Prime Video'];
 let activeFilter='Alles',apiMatches=[],apiState='loading';
 const emoji={'Voetbal':'⚽','Formule 1':'🏁','Darts':'🎯','Rugby':'🏉','American football':'🏈','Overig':'📺'};
-const statusMap={'live':'LIVE','inprogress':'LIVE','in_progress':'LIVE','finished':'AFGELOPEN','complete':'AFGELOPEN','completed':'AFGELOPEN','notstarted':'GEPLAND','scheduled':'GEPLAND','upcoming':'GEPLAND'};
+const statusMap={'live':'LIVE','inprogress':'LIVE','in_progress':'LIVE','in-play':'LIVE','in_play':'LIVE','finished':'AFGELOPEN','complete':'AFGELOPEN','completed':'AFGELOPEN','notstarted':'GEPLAND','scheduled':'GEPLAND','upcoming':'GEPLAND','ns':'GEPLAND','not_started':'GEPLAND'};
 function localGet(k, fallback){try{return JSON.parse(localStorage.getItem(k)||JSON.stringify(fallback))}catch(e){return fallback}}
 function localSet(k,v){localStorage.setItem(k,JSON.stringify(v))}
 function fmtTime(v){if(!v)return 'Tijd onbekend';let d=new Date(v);return isNaN(d)?v:d.toLocaleString('nl-NL',{weekday:'short',day:'numeric',month:'short',hour:'2-digit',minute:'2-digit'})}
@@ -66,28 +66,58 @@ function serviceFor(comp=''){
  return 'Nog controleren';
 }
 function deviceFor(service){return (service==='ESPN'||service==='Ziggo Sport')?'Ziggo Next Mini of Chromecast':'Chromecast of Ziggo Next Mini — controleer app'}
+function getTeamName(t, fallback=''){
+ if(typeof t==='string')return t;
+ if(t&&typeof t==='object')return t.name||t.short_name||t.display_name||fallback;
+ return fallback;
+}
 function normalizeApi(m){
- let s=(m.status||m.status_text||'').toLowerCase();
- let status=statusMap[s]||m.status_text||'STATUS ONBEKEND';
- const comp=m.competition||m.league||'';
- const service=serviceFor(comp);
- return {id:'api-'+(m.url||m.home+m.away+m.time),sport:'Voetbal',name:(m.home||'Thuis')+' – '+(m.away||'Uit'),league:comp||'Voetbal',status,rawStatus:s,time:m.time,score:(m.home_score!=null&&m.away_score!=null)?`${m.home_score} – ${m.away_score}`:'',service,device:deviceFor(service),note:service==='Nog controleren'?'Niet bevestigd in jullie schema; controleer eerst de Nederlandse uitzender.':'Controleer voor de zekerheid de actuele Nederlandse tv-gids.',url:m.url?('https://sportscore.com'+m.url):'https://sportscore.com/',source:'Sportdata'}
+ let s=String(m.status||m.status_text||m.state||'').toLowerCase();
+ let status=statusMap[s]||m.status_text||((s.includes('live')||s.includes('progress'))?'LIVE':(s.includes('finish')||s.includes('complete')?'AFGELOPEN':'GEPLAND'));
+ const comp=m.competition||m.league||m.tournament||m.competition_name||'';
+ const home=getTeamName(m.home||m.home_team||m.homeTeam,m.home_name||'Thuis');
+ const away=getTeamName(m.away||m.away_team||m.awayTeam,m.away_name||'Uit');
+ const time=m.time||m.kickoff||m.start_time||m.date||m.utc_time||'';
+ const service=serviceFor(typeof comp==='string'?comp:(comp.name||''));
+ const homeScore=m.home_score??m.homeScore??m.scores?.home;
+ const awayScore=m.away_score??m.awayScore??m.scores?.away;
+ return {id:'api-'+(m.id||m.url||home+away+time),sport:'Voetbal',name:home+' – '+away,league:typeof comp==='string'?comp:(comp.name||'Voetbal'),status,rawStatus:s,time,score:(homeScore!=null&&awayScore!=null)?`${homeScore} – ${awayScore}`:'',service,device:deviceFor(service),note:service==='Nog controleren'?'Nederlandse zender niet bevestigd; controleer de tv-gids.':'Controleer voor de zekerheid de actuele Nederlandse tv-gids.',url:m.url?('https://sportscore.com'+m.url):'https://sportscore.com/',source:'Sportdata'}
 }
 async function refreshData(){
- document.getElementById('updated').textContent='Sportdata wordt vernieuwd…';
+ document.getElementById('updated').textContent='Wedstrijden van vandaag worden opgehaald…';
+ const day=new Date(), yyyy=day.getFullYear(), mm=String(day.getMonth()+1).padStart(2,'0'), dd=String(day.getDate()).padStart(2,'0');
+ const today=`${yyyy}-${mm}-${dd}`;
  try{
-  const r=await fetch('https://sportscore.com/api/widget/matches/?sport=football&limit=30',{cache:'no-store'});
-  if(!r.ok)throw new Error('HTTP '+r.status);
-  const j=await r.json();if(!Array.isArray(j.matches))throw new Error('Onverwacht antwoord');
-  apiMatches=j.matches.map(normalizeApi).filter(m=>m.service!=='Nog controleren');apiState='ok';
-  const up=j.updated?new Date(j.updated):new Date();
-  document.getElementById('updated').textContent='Voetbal bijgewerkt: '+up.toLocaleTimeString('nl-NL',{hour:'2-digit',minute:'2-digit'})+' · ververst bij openen/knop';
+  let j=null, lastError=null;
+  for(const url of [
+   `https://sportscore.com/api/v1/fixtures/?sport=football&date=${today}&status=upcoming&limit=100`,
+   `https://sportscore.com/api/v1/fixtures/?sport=football&date=${today}&limit=100`
+  ]){
+   try{
+    const r=await fetch(url,{cache:'no-store'});
+    if(!r.ok)throw new Error('HTTP '+r.status);
+    const candidate=await r.json();
+    const list=Array.isArray(candidate)?candidate:(candidate.fixtures||candidate.matches||candidate.data||candidate.results);
+    if(Array.isArray(list)){j={matches:list,updated:candidate.updated||new Date().toISOString()};break}
+    throw new Error('Onverwachte gegevensstructuur');
+   }catch(e){lastError=e}
+  }
+  if(!j){
+   const r=await fetch('https://sportscore.com/api/widget/matches/?sport=football&limit=50',{cache:'no-store'});
+   if(!r.ok)throw lastError||new Error('HTTP '+r.status);
+   const candidate=await r.json();
+   if(!Array.isArray(candidate.matches))throw new Error('Onverwacht antwoord');
+   j={matches:candidate.matches,updated:candidate.updated||new Date().toISOString()};
+  }
+  apiMatches=(j.matches||[]).map(normalizeApi).filter(m=>m.service!=='Nog controleren');
+  apiState='ok';
+  document.getElementById('updated').textContent='Wedstrijden bijgewerkt: '+new Date().toLocaleTimeString('nl-NL',{hour:'2-digit',minute:'2-digit'});
   document.getElementById('dataNotice').className='notice good';
-  document.getElementById('dataNotice').innerHTML='✓ Automatische voetbaldata verbonden. Alleen competities die aan jullie diensten gekoppeld kunnen worden, worden getoond. Controleer Nederlandse uitzendrechten.';
+  document.getElementById('dataNotice').innerHTML='✓ Wedstrijden van vandaag opgehaald. Alleen competities die aan jullie diensten gekoppeld kunnen worden, worden getoond. De Nederlandse zender moet bij twijfel worden gecontroleerd.';
  }catch(e){
   apiState='error';document.getElementById('updated').textContent='Sportdata tijdelijk niet bereikbaar';
   document.getElementById('dataNotice').className='notice';
-  document.getElementById('dataNotice').textContent='Automatische sportdata is tijdelijk niet beschikbaar. Handmatige evenementen en jullie dienstenlijst blijven beschikbaar.';
+  document.getElementById('dataNotice').textContent='De automatische wedstrijdagenda kon niet worden geladen. Druk op Vernieuwen of voeg een evenement handmatig toe.';
  }
  renderMatches();
 }
