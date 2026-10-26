@@ -4,8 +4,8 @@
   "description": "Interne sport- en uitzendhulp voor Molly Malone",
   "start_url": "./",
   "display": "standalone",
-  "background_color": "#0b1220",
-  "theme_color": "#101827",
+  "background_color": "#101b16",
+  "theme_color": "#17291f",
   "icons": [
     {
       "src": "icon.svg",
