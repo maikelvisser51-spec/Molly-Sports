@@ -43,6 +43,7 @@
     }
     async function espnForComp(comp, days) {
         const base = `https://site.api.espn.com/apis/site/v2/sports/soccer/${comp.id}/scoreboard`;
+        console.log(base);
         const now = new Date(), end = new Date(now); end.setDate(end.getDate() + days - 1);
         const data = await fetchJSON(`${base}?dates=${ymd(now)}-${ymd(end)}&limit=100`);
         // Use one date-range request per competition to avoid flooding public feeds.
