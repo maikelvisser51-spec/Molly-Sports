@@ -3,25 +3,26 @@
     const $ = (s) => document.querySelector(s);
     const TZ = 'Europe/Amsterdam';
     const comps = [
-        { id: 'ned.1', name: 'Eredivisie', aliases: ['eredivisie', 'dutch eredivisie'] },
-        { id: 'eng.1', name: 'Premier League', aliases: ['premier league', 'english premier league'] },
-        { id: 'esp.1', name: 'La Liga', aliases: ['la liga', 'primera division', 'laliga'] },
-        { id: 'ger.1', name: 'Bundesliga', aliases: ['bundesliga', 'german bundesliga'] },
-        { id: 'ita.1', name: 'Serie A', aliases: ['serie a', 'italian serie a'] },
-        { id: 'fra.1', name: 'Ligue 1', aliases: ['ligue 1', 'french ligue 1'] },
-        { id: 'uefa.champions', name: 'Champions League', aliases: ['uefa champions league', 'champions league'] },
-        { id: 'uefa.europa', name: 'Europa League', aliases: ['uefa europa league', 'europa league'] },
-        { id: 'uefa.europa.conf', name: 'Conference League', aliases: ['uefa conference league', 'conference league'] },
-        { id: 'ned.1', name: 'KNVB-beker', aliases: ['knvb beker', 'knvb-beker', 'dutch cup'] },
-        { id: 'eng.fa', name: 'FA Cup', aliases: ['fa cup', 'english fa cup'] },
-        { id: 'eng.league_cup', name: 'EFL Cup', aliases: ['efl cup', 'league cup', 'carabao cup'] },
-        { id: 'esp.copa_del_rey', name: 'Copa del Rey', aliases: ['copa del rey'] },
-        { id: 'ger.dfb_pokal', name: 'DFB-Pokal', aliases: ['dfb pokal', 'dfb-pokal'] },
-        { id: 'ita.coppa_italia', name: 'Coppa Italia', aliases: ['coppa italia'] },
-        { id: 'fra.coupe_de_france', name: 'Coupe de France', aliases: ['coupe de france'] }
+        { id: 'ned.1', leagueId: '725', name: 'Eredivisie', aliases: ['eredivisie', 'dutch eredivisie'] },
+        { id: 'eng.1', leagueId: '700', name: 'Premier League', aliases: ['premier league', 'english premier league'] },
+        { id: 'esp.1', leagueId: '740', name: 'La Liga', aliases: ['la liga', 'primera division', 'laliga'] },
+        { id: 'ger.1', leagueId: '720', name: 'Bundesliga', aliases: ['bundesliga', 'german bundesliga'] },
+        { id: 'ita.1', leagueId: '730', name: 'Serie A', aliases: ['serie a', 'italian serie a'] },
+        { id: 'fra.1', leagueId: '710', name: 'Ligue 1', aliases: ['ligue 1', 'french ligue 1'] },
+        { id: 'uefa.champions', leagueId: '775', name: 'Champions League', aliases: ['uefa champions league', 'champions league'] },
+        { id: 'uefa.europa', leagueId: '776', name: 'Europa League', aliases: ['uefa europa league', 'europa league'] },
+        { id: 'uefa.europa.conf', leagueId: '20296', name: 'Conference League', aliases: ['uefa conference league', 'conference league'] },
+        { id: 'ned.cup', leagueId: '3957', name: 'KNVB-beker', aliases: ['knvb beker', 'knvb-beker', 'dutch cup'] },
+        { id: 'eng.fa', leagueId: '3918', name: 'FA Cup', aliases: ['fa cup', 'english fa cup'] },
+        { id: 'eng.league_cup', leagueId: '3920', name: 'EFL Cup', aliases: ['efl cup', 'league cup', 'carabao cup'] },
+        { id: 'esp.copa_del_rey', leagueId: '3951', name: 'Copa del Rey', aliases: ['copa del rey'] },
+        { id: 'ger.dfb_pokal', leagueId: '3954', name: 'DFB-Pokal', aliases: ['dfb pokal', 'dfb-pokal'] },
+        { id: 'ita.coppa_italia', leagueId: '3956', name: 'Coppa Italia', aliases: ['coppa italia'] },
+        { id: 'fra.coupe_de_france', leagueId: '3952', name: 'Coupe de France', aliases: ['coupe de france'] }
     ];
     const cupIds = new Set(comps.slice(9).map(c => c.id));
-    let matches = [], selected = 'all', loading = false;
+    const scoreboardUrl = 'https://site.api.espn.com/apis/site/v2/sports/soccer/all/scoreboard';
+    let scoreboardData = null, matches = [], selected = 'all', loading = false;
     const footballStatus = $('#football-status'), footballList = $('#football-list');
     const fmtDay = d => new Intl.DateTimeFormat('nl-NL', { weekday: 'short', day: 'numeric', month: 'short', timeZone: TZ }).format(new Date(d));
     const fmtTime = d => new Intl.DateTimeFormat('nl-NL', { hour: '2-digit', minute: '2-digit', timeZone: TZ }).format(new Date(d));
@@ -32,52 +33,73 @@
         try { const r = await fetch(url, { signal: controller.signal, cache: 'no-store' }); if (!r.ok) throw new Error(`HTTP ${r.status}`); return await r.json(); }
         finally { clearTimeout(timer); }
     }
-    function parseESPN(e, comp) {
-        const eventComp = e.league?.name || e.season?.name || comp.name;
-        console.log("eventcomp", eventComp);
+    function competitionForEvent(e) {
+        const leagueId = String(e.uid || '').match(/~l:(\d+)~/)?.[1];
+        const note = e.competitions?.[0]?.altGameNote || '';
+        const known = comps.find(comp => comp.leagueId === leagueId);
+        if (known) return known;
+        const normalizedNote = note.toLowerCase();
+        return comps.find(comp => comp.aliases.some(alias => normalizedNote.includes(alias))) || {
+            id: leagueId || 'unknown',
+            name: note || 'Onbekende competitie',
+            aliases: []
+        };
+    }
+    function parseESPN(e) {
+        const comp = competitionForEvent(e);
         const teams = e.competitions?.[0]?.competitors || [];
         const h = teams.find(x => x.homeAway === 'home') || teams[0], a = teams.find(x => x.homeAway === 'away') || teams[1];
         if (!h || !a || !e.date) return null;
         const state = e.status?.type || {}; const hs = h.score, as = a.score;
         const scored = hs !== undefined && as !== undefined && hs !== null && as !== null && hs !== '' && as !== '';
-        return { id: String(e.id || `${e.date}-${h.team?.id}-${a.team?.id}`), date: e.date, home: h.team?.displayName || h.team?.name || 'Thuis', away: a.team?.displayName || a.team?.name || 'Uit', homeScore: scored ? hs : null, awayScore: scored ? as : null, comp: comp.name || eventComp, compId: comp.id, source: 'ESPN', state: state.shortDetail || state.detail || state.description || '', stateCode: state.state || '' };
+        return { id: String(e.id || `${e.date}-${h.team?.id}-${a.team?.id}`), date: e.date, home: h.team?.displayName || h.team?.name || 'Thuis', away: a.team?.displayName || a.team?.name || 'Uit', homeScore: scored ? hs : null, awayScore: scored ? as : null, comp: comp.name, compId: comp.id, source: 'ESPN', state: state.shortDetail || state.detail || state.description || '', stateCode: state.state || '' };
     }
-    async function espnForComp(comp, days) {
-        const base = `https://site.api.espn.com/apis/site/v2/sports/soccer/all/scoreboard`;
-        const now = new Date(), end = new Date(now); end.setDate(end.getDate() + days - 1);
-        const data = await fetchJSON(`${base}`);
-        // Use one date-range request per competition to avoid flooding public feeds.
+    async function loadScoreboard() {
+        const data = await fetchJSON(scoreboardUrl);
+        scoreboardData = data;
         const events = Array.isArray(data.events) ? data.events : [];
-        const seen = new Set(); return events.map(e => parseESPN(e, comp)).filter(Boolean).filter(m => { const t = Date.parse(m.date), live = isOngoing(m); if ((t < Date.now() && !live) || t > Date.now() + days * 86400000) return false; if (seen.has(m.id)) return false; seen.add(m.id); return true; });
+        const seen = new Set();
+        matches = events.map(parseESPN).filter(Boolean).filter(match => {
+            if (seen.has(match.id)) return false;
+            seen.add(match.id);
+            return true;
+        });
+        return matches;
     }
-    let leagueLookupPromise;
-    async function sportsDbLeagues() { if (!leagueLookupPromise) leagueLookupPromise = fetchJSON('https://www.thesportsdb.com/api/v1/json/123/search_all_leagues.php?s=Soccer').then(x => x.leagues || []); return leagueLookupPromise; }
-    async function sportsDbForComp(comp, days) {
-        const leagues = await sportsDbLeagues(); const aliases = [comp.name, ...comp.aliases].map(s => s.toLowerCase());
-        const league = leagues.find(l => { const name = (l.strLeague || '').toLowerCase(); return aliases.some(a => name === a || name.includes(a) || a.includes(name)); });
-        if (!league?.idLeague) return [];
-        const data = await fetchJSON(`https://www.thesportsdb.com/api/v1/json/123/eventsnextleague.php?id=${encodeURIComponent(league.idLeague)}`);
-        const now = Date.now(), cutoff = now + days * 86400000;
-        return (data.events || []).map(e => { const date = e.strTimestamp || (e.dateEvent && `${e.dateEvent}T${e.strTime || '12:00:00'}Z`); if (!date || !e.strHomeTeam || !e.strAwayTeam) return null; const hs = e.intHomeScore, as = e.intAwayScore, scored = hs !== null && hs !== undefined && as !== null && as !== undefined && hs !== '' && as !== ''; return { id: String(e.idEvent || `${date}-${e.strHomeTeam}-${e.strAwayTeam}`), date, home: e.strHomeTeam, away: e.strAwayTeam, homeScore: scored ? hs : null, awayScore: scored ? as : null, comp: comp.name, compId: comp.id, source: 'TheSportsDB', state: e.strStatus || '', stateCode: e.strStatus || '' }; }).filter(m => m && ((Date.parse(m.date) >= now && !isOngoing(m)) || isOngoing(m)) && Date.parse(m.date) <= cutoff);
-    }
-    async function fetchComp(comp, days) { let err; try { const a = await espnForComp(comp, days); if (a.length) return { items: a, source: 'ESPN' }; } catch (e) { err = e; } try { const b = await sportsDbForComp(comp, days); if (b.length) return { items: b, source: 'TheSportsDB' }; } catch (e) { if (!err) err = e; } return { items: [], error: err?.message || 'Geen wedstrijden teruggegeven' }; }
     function isOngoing(m) { const s = String(m.stateCode || m.state || '').toLowerCase(); return s === 'in' || /live|in progress|halftime|half time|1st half|2nd half|1st period|2nd period|3rd period|extra time|overtime|being played|playing/.test(s); }
     function setStatus(text, warn = false) { footballStatus.textContent = text; footballStatus.classList.toggle('warn', warn); }
     function renderMatches() {
-        footballList.replaceChildren(); let arr = matches.filter(m => selected === 'all' || (selected === 'cups' ? cupIds.has(m.compId) : m.compId === selected)); arr.sort((a, b) => Date.parse(a.date) - Date.parse(b.date)); if (!arr.length) { const box = document.createElement('div'); box.className = 'empty'; box.innerHTML = '<div class="emoji">⚽</div><h3>Geen wedstrijden gevonden</h3><p>De bronnen hebben voor deze selectie geen wedstrijden teruggegeven. Probeer een andere periode of ververs later.</p>'; footballList.append(box); return; }
+        footballList.replaceChildren();
+        const days = $('#period').value === 'today' ? 1 : Number($('#period').value);
+        const currentTime = Date.now(), cutoff = currentTime + days * 86400000;
+        let arr = matches.filter(m => {
+            const time = Date.parse(m.date);
+            const inPeriod = (time >= currentTime || isOngoing(m)) && time <= cutoff;
+            const inCompetition = selected === 'all' || (selected === 'cups' ? cupIds.has(m.compId) : m.compId === selected);
+            return inPeriod && inCompetition;
+        });
+        arr.sort((a, b) => Date.parse(a.date) - Date.parse(b.date));
+        if (!arr.length) { const box = document.createElement('div'); box.className = 'empty'; box.innerHTML = '<div class="emoji">⚽</div><h3>Geen wedstrijden gevonden</h3><p>De bronnen hebben voor deze selectie geen wedstrijden teruggegeven. Probeer een andere periode of ververs later.</p>'; footballList.append(box); return; }
         const now = Date.now(); arr.forEach(m => { const row = document.createElement('article'); row.className = 'match'; const top = document.createElement('div'); top.className = 'match-top'; const names = document.createElement('div'); names.className = 'teams'; names.textContent = `${m.home}  –  ${m.away}`; const when = document.createElement('div'); when.className = 'when'; const dt = Date.parse(m.date); when.innerHTML = `<strong>${fmtTime(m.date)}</strong>${fmtDay(m.date)}`; top.append(names, when); const meta = document.createElement('div'); meta.className = 'meta'; const comp = document.createElement('span'); comp.className = 'tag'; comp.textContent = m.comp; meta.append(comp); const state = document.createElement('span'); state.className = 'tag'; state.textContent = isOngoing(m) ? '🔴 Bezig' : 'Binnenkort'; meta.append(state); const source = document.createElement('span'); source.className = 'tag'; source.textContent = m.source; meta.append(source); const tv = document.createElement('span'); tv.className = 'tag'; tv.textContent = 'Tv-zender niet bevestigd'; meta.append(tv); row.append(top, meta); footballList.append(row); });
     }
-    function getCache() { try { const x = JSON.parse(localStorage.getItem('mollyFootballCacheV9') || 'null'); return x && Array.isArray(x.matches) ? x : null; } catch { return null; } }
+    function getCache() { try { const x = JSON.parse(localStorage.getItem('mollyFootballCacheV10') || 'null'); return x && Array.isArray(x.matches) ? x : null; } catch { return null; } }
     function applyCache() { const c = getCache(); if (!c) return false; matches = c.matches; $('#last-updated').textContent = `Laatste voetbaldata: ${new Date(c.savedAt).toLocaleTimeString('nl-NL', { hour: '2-digit', minute: '2-digit' })} (opgeslagen` + `)`; renderMatches(); return true; }
     async function loadFootball() {
-        if (loading) return; loading = true; const btn = $('#refresh-football'); btn.disabled = true; btn.textContent = 'Laden…'; const days = $('#period').value === 'today' ? 1 : Number($('#period').value); setStatus('Wedstrijdfeeds worden gecontroleerd…'); footballList.replaceChildren(); let done = 0, dataCount = 0, failed = [];
+        if (loading) return; loading = true; const btn = $('#refresh-football'); btn.disabled = true; btn.textContent = 'Laden…'; setStatus('ESPN-scoreboard laden…'); footballList.replaceChildren();
         try {
-            const results = await Promise.all(comps.map(async c => { const r = await fetchComp(c, days); done++; if (r.items.length) dataCount++; else failed.push(c.name); return r; })); const seen = new Set(), fresh = []; results.forEach(r => r.items.forEach(m => { if (!seen.has(m.id)) { seen.add(m.id); fresh.push(m); } }));
-            if (fresh.length) { matches = fresh.filter(m => Date.parse(m.date) >= Date.now() || isOngoing(m)); try { localStorage.setItem('mollyFootballCacheV9', JSON.stringify({ savedAt: new Date().toISOString(), matches })); } catch { } $('#last-updated').textContent = 'Bijgewerkt ' + new Date().toLocaleTimeString('nl-NL', { hour: '2-digit', minute: '2-digit' }); setStatus(`${matches.length} aankomende of bezig zijnde wedstrijden gevonden uit ${dataCount} competities.`, false); $('#source-details').textContent = `Data ontvangen van: ${[...new Set(matches.map(m => m.source))].join(', ')}. Geen data voor ${failed.length} competities. Nederlandse tv-zenders zijn niet automatisch bevestigd.`; renderMatches(); }
-            else { const hadCache = applyCache(); setStatus(hadCache ? 'Live bronnen gaven nu geen wedstrijden terug. Hieronder staan eerder opgehaalde gegevens; de tijd hierboven geeft aan hoe oud ze zijn.' : 'Geen wedstrijddata ontvangen. Mogelijk blokkeert de databron de browseraanvraag, is de feed leeg of ondersteunt de bron deze competitie niet.', true); $('#source-details').textContent = `Geprobeerd: ESPN en TheSportsDB. Geen data voor ${failed.join(', ')}. Foutdetails worden bewust compact gehouden; openbare feeds kunnen wijzigen of browserverzoeken blokkeren.`; if (!hadCache) renderMatches(); }
-        } catch (e) { const hadCache = applyCache(); setStatus(hadCache ? 'De live feeds reageren niet. Eerder opgehaalde data wordt getoond.' : 'De feeds konden niet worden bereikt. Controleer je internetverbinding en probeer opnieuw.', true); if (!hadCache) renderMatches(); } finally { loading = false; btn.disabled = false; btn.textContent = '↻ Ververs'; }
+            await loadScoreboard();
+            try { localStorage.setItem('mollyFootballCacheV10', JSON.stringify({ savedAt: new Date().toISOString(), matches })); } catch { }
+            $('#last-updated').textContent = 'Bijgewerkt ' + new Date().toLocaleTimeString('nl-NL', { hour: '2-digit', minute: '2-digit' });
+            setStatus(`${matches.length} wedstrijden gevonden in de ESPN-scoreboarddata.`, false);
+            $('#source-details').textContent = 'Data ontvangen van ESPN. De competitieknoppen filteren de opgeslagen scoreboarddata lokaal.';
+            renderMatches();
+        } catch (e) {
+            const hadCache = applyCache();
+            setStatus(hadCache ? 'De live feed reageert niet. Eerder opgehaalde data wordt getoond.' : 'De ESPN-feed kon niet worden bereikt. Controleer je internetverbinding en probeer opnieuw.', true);
+            if (!hadCache) renderMatches();
+        } finally { loading = false; btn.disabled = false; btn.textContent = '↻ Ververs'; }
     }
-    $('#competition-buttons').addEventListener('click', e => { const b = e.target.closest('button[data-comp]'); if (!b) return; selected = b.dataset.comp; $('#competition-buttons').querySelectorAll('button').forEach(x => x.classList.toggle('active', x === b)); renderMatches(); }); $('#refresh-football').addEventListener('click', loadFootball); $('#period').addEventListener('change', loadFootball);
+    $('#competition-buttons').addEventListener('click', e => { const b = e.target.closest('button[data-comp]'); if (!b) return; selected = b.dataset.comp; $('#competition-buttons').querySelectorAll('button').forEach(x => x.classList.toggle('active', x === b)); renderMatches(); }); $('#refresh-football').addEventListener('click', loadFootball); $('#period').addEventListener('change', renderMatches);
     // Tabs
     const tabs = [...document.querySelectorAll('[role="tab"]')]; tabs.forEach(t => t.addEventListener('click', () => { tabs.forEach(x => { const active = x === t; x.setAttribute('aria-selected', String(active)); const p = document.getElementById(x.getAttribute('aria-controls')); if (p) p.hidden = !active; }); }));
     // Formula 1 calendar retained
