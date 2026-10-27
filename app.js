@@ -12,7 +12,7 @@
         { id: 'uefa.champions', name: 'Champions League', aliases: ['uefa champions league', 'champions league'] },
         { id: 'uefa.europa', name: 'Europa League', aliases: ['uefa europa league', 'europa league'] },
         { id: 'uefa.europa.conf', name: 'Conference League', aliases: ['uefa conference league', 'conference league'] },
-        { id: 'ned.knvb_beker', name: 'KNVB-beker', aliases: ['knvb beker', 'knvb-beker', 'dutch cup'] },
+        { id: 'ned.1', name: 'KNVB-beker', aliases: ['knvb beker', 'knvb-beker', 'dutch cup'] },
         { id: 'eng.fa', name: 'FA Cup', aliases: ['fa cup', 'english fa cup'] },
         { id: 'eng.league_cup', name: 'EFL Cup', aliases: ['efl cup', 'league cup', 'carabao cup'] },
         { id: 'esp.copa_del_rey', name: 'Copa del Rey', aliases: ['copa del rey'] },
