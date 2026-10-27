@@ -45,7 +45,7 @@
         const base = `https://site.api.espn.com/apis/site/v2/sports/soccer/${comp.id}/scoreboard`;
         console.log(base);
         const now = new Date(), end = new Date(now); end.setDate(end.getDate() + days - 1);
-        const data = await fetchJSON(`${base}?dates=${ymd(now)}-${ymd(end)}&limit=100`);
+        const data = await fetchJSON(`${base}`);
         // Use one date-range request per competition to avoid flooding public feeds.
         const events = Array.isArray(data.events) ? data.events : [];
         const seen = new Set(); return events.map(e => parseESPN(e, comp)).filter(Boolean).filter(m => { const t = Date.parse(m.date), live = isOngoing(m); if ((t < Date.now() && !live) || t > Date.now() + days * 86400000) return false; if (seen.has(m.id)) return false; seen.add(m.id); return true; });
