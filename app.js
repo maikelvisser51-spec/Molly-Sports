@@ -22,6 +22,7 @@
     ];
     const cupIds = new Set(comps.slice(9).map(c => c.id));
     const scoreboardUrl = 'https://site.api.espn.com/apis/site/v2/sports/soccer/all/scoreboard';
+    const scoreboardDays = 7;
     let scoreboardData = null, matches = [], selected = 'all', loading = false;
     const footballStatus = $('#football-status'), footballList = $('#football-list');
     const fmtDay = d => new Intl.DateTimeFormat('nl-NL', { weekday: 'short', day: 'numeric', month: 'short', timeZone: TZ }).format(new Date(d));
@@ -34,7 +35,8 @@
         finally { clearTimeout(timer); }
     }
     function competitionForEvent(e) {
-        const leagueId = String(e.uid || '').match(/~l:(\d+)~/)?.[1];
+        const eventUid = e.uid || e.competitions?.[0]?.uid || '';
+        const leagueId = String(eventUid).match(/~l:(\d+)~/)?.[1];
         const note = e.competitions?.[0]?.altGameNote || '';
         const known = comps.find(comp => comp.leagueId === leagueId);
         if (known) return known;
@@ -55,7 +57,11 @@
         return { id: String(e.id || `${e.date}-${h.team?.id}-${a.team?.id}`), date: e.date, home: h.team?.displayName || h.team?.name || 'Thuis', away: a.team?.displayName || a.team?.name || 'Uit', homeScore: scored ? hs : null, awayScore: scored ? as : null, comp: comp.name, compId: comp.id, source: 'ESPN', state: state.shortDetail || state.detail || state.description || '', stateCode: state.state || '' };
     }
     async function loadScoreboard() {
-        const data = await fetchJSON(scoreboardUrl);
+        const start = localDateKey(new Date()).replace(/-/g, '');
+        const endDate = new Date();
+        endDate.setDate(endDate.getDate() + scoreboardDays - 1);
+        const end = localDateKey(endDate).replace(/-/g, '');
+        const data = await fetchJSON(`${scoreboardUrl}?dates=${start}-${end}&limit=1000`);
         scoreboardData = data;
         const events = Array.isArray(data.events) ? data.events : [];
         const seen = new Set();
