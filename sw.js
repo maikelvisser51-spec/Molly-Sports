@@ -1,29 +1,5 @@
-const CACHE = 'molly-sports-v4';
-const ASSETS = ['./', './index.html', './app.js', './manifest.webmanifest', './icon.svg'];
-self.addEventListener('install', event => {
-  self.skipWaiting();
-  event.waitUntil(caches.open(CACHE).then(cache => cache.addAll(ASSETS)));
-});
-self.addEventListener('activate', event => {
-  event.waitUntil(caches.keys().then(keys => Promise.all(keys.filter(key => key !== CACHE).map(key => caches.delete(key)))).then(() => self.clients.claim()));
-});
-self.addEventListener('fetch', event => {
-  const request = event.request;
-  const url = new URL(request.url);
-  if (url.origin !== self.location.origin || request.method !== 'GET') return;
-  const isAppFile = url.pathname.endsWith('/index.html') || url.pathname.endsWith('/app.js') || url.pathname.endsWith('/sw.js') || url.pathname.endsWith('/Molly-Sports/');
-  if (isAppFile) {
-    event.respondWith(fetch(request).then(response => {
-      if (response && response.ok) {
-        const copy = response.clone();
-        caches.open(CACHE).then(cache => cache.put(request, copy));
-      }
-      return response;
-    }).catch(() => caches.match(request).then(cached => cached || caches.match('./index.html'))));
-  } else {
-    event.respondWith(caches.match(request).then(cached => cached || fetch(request).then(response => {
-      if (response && response.ok) caches.open(CACHE).then(cache => cache.put(request, response.clone()));
-      return response;
-    })));
-  }
-});
+const CACHE='molly-sports-v6';
+const ASSETS=['./','./index.html','./app.js','./manifest.webmanifest','./icon.svg'];
+self.addEventListener('install',event=>event.waitUntil((async()=>{const cache=await caches.open(CACHE);await cache.addAll(ASSETS);await self.skipWaiting()})()));
+self.addEventListener('activate',event=>event.waitUntil((async()=>{const keys=await caches.keys();await Promise.all(keys.filter(k=>k.startsWith('molly-sports-')&&k!==CACHE).map(k=>caches.delete(k)));await self.clients.claim()})()));
+self.addEventListener('fetch',event=>{const req=event.request;const url=new URL(req.url);if(req.method!=='GET'||url.origin!==self.location.origin)return;const isAppFile=['/Molly-Sports/','/Molly-Sports/index.html','/Molly-Sports/app.js','/Molly-Sports/sw.js'].includes(url.pathname);if(isAppFile){event.respondWith((async()=>{try{const response=await fetch(req,{cache:'no-store'});if(response.ok){const cache=await caches.open(CACHE);cache.put(req,response.clone());}return response;}catch{return (await caches.match(req))||(await caches.match('./index.html'));}})());}});

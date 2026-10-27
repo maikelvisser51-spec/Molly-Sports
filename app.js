@@ -1,249 +1,42 @@
-/* Molly Sports app logic - v3
-   No made-up fixtures or TV-channel guesses. F1 data is best-effort and falls back to official calendar. */
 (() => {
-  'use strict';
-
-  const $ = (selector) => document.querySelector(selector);
-  const tabs = Array.from(document.querySelectorAll('[role="tab"]'));
-
-  function activateTab(tab, moveFocus = false) {
-    tabs.forEach((item) => {
-      const selected = item === tab;
-      item.setAttribute('aria-selected', String(selected));
-      item.tabIndex = selected ? 0 : -1;
-      const panel = document.getElementById(item.getAttribute('aria-controls'));
-      if (panel) panel.hidden = !selected;
-    });
-    if (moveFocus) tab.focus();
-  }
-
-  tabs.forEach((tab, index) => {
-    tab.addEventListener('click', () => activateTab(tab));
-    tab.addEventListener('keydown', (event) => {
-      let next = index;
-      if (event.key === 'ArrowRight' || event.key === 'ArrowDown') next = (index + 1) % tabs.length;
-      else if (event.key === 'ArrowLeft' || event.key === 'ArrowUp') next = (index - 1 + tabs.length) % tabs.length;
-      else if (event.key === 'Home') next = 0;
-      else if (event.key === 'End') next = tabs.length - 1;
-      else return;
-      event.preventDefault();
-      activateTab(tabs[next], true);
-    });
-  });
-  if (tabs.length) activateTab(tabs.find((t) => t.getAttribute('aria-selected') === 'true') || tabs[0]);
-
-  const f1Status = $('#f1-status');
-  const f1List = $('#f1-list');
-  const officialF1Url = 'https://www.formula1.com/en/racing/2026';
-  const nlDateTime = (date, time) => {
-    if (!date) return 'Datum nog niet bekend';
-    // The API returns UTC session times. Convert to the Netherlands' local time.
-    const iso = time ? `${date}T${time.replace(/Z$/, '')}${time.endsWith('Z') ? 'Z' : 'Z'}` : `${date}T12:00:00Z`;
-    const parsed = new Date(iso);
-    if (Number.isNaN(parsed.getTime())) return date + (time ? ` · ${time}` : '');
-    const dateText = new Intl.DateTimeFormat('nl-NL', { timeZone: 'Europe/Amsterdam', weekday: 'short', day: 'numeric', month: 'short' }).format(parsed);
-    const timeText = time ? new Intl.DateTimeFormat('nl-NL', { timeZone: 'Europe/Amsterdam', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }).format(parsed) : '';
-    return dateText + (timeText ? ` · ${timeText} Nederlandse tijd` : ' · tijd nog niet bekend');
-  };
-
-  function makeLink(label, href, className = 'link') {
-    const a = document.createElement('a');
-    a.className = className;
-    a.href = href;
-    a.target = '_blank';
-    a.rel = 'noopener noreferrer';
-    a.textContent = label;
-    return a;
-  }
-
-  function addSession(container, label, session) {
-    if (!session || !session.date) return;
-    const row = document.createElement('div');
-    row.className = 'event';
-    const title = document.createElement('strong');
-    title.textContent = label;
-    const when = document.createElement('div');
-    when.className = 'small';
-    when.textContent = nlDateTime(session.date, session.time || '');
-    row.append(title, when);
-    container.appendChild(row);
-  }
-
-  function getRaces(data) {
-    // Current F1API.dev schema uses `races`; older API-compatible schemas differ.
-    if (Array.isArray(data?.races)) return data.races;
-    if (Array.isArray(data?.race)) return data.race;
-    if (Array.isArray(data?.season?.races)) return data.season.races;
-    if (Array.isArray(data?.MRData?.RaceTable?.Races)) return data.MRData.RaceTable.Races;
-    return [];
-  }
-
-  async function loadF1() {
-    if (!f1Status || !f1List) return;
-    f1Status.textContent = 'Formule 1-kalender laden…';
-    f1List.replaceChildren();
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 10000);
-    try {
-      const response = await fetch('https://f1api.dev/api/current', {
-        headers: { Accept: 'application/json' },
-        cache: 'no-cache',
-        signal: controller.signal
-      });
-      if (!response.ok) throw new Error(`HTTP ${response.status}`);
-      const data = await response.json();
-      const races = getRaces(data);
-      if (!races.length) throw new Error('Geen races in de API-reactie');
-      const now = Date.now();
-      const sessions = [];
-      races.forEach((race) => {
-        const schedule = race.schedule || {};
-        const circuit = race.circuit || {};
-        const raceName = race.raceName || race.name || race.gpName || 'Grand Prix';
-        const venue = circuit.circuitName || circuit.name || circuit.country || '';
-        const candidates = [
-          ['Vrije training 1', schedule.fp1],
-          ['Vrije training 2', schedule.fp2],
-          ['Vrije training 3', schedule.fp3],
-          ['Sprintkwalificatie', schedule.sprintQualy || schedule.sprintQualifying],
-          ['Sprint', schedule.sprintRace],
-          ['Kwalificatie', schedule.qualy || schedule.qualifying],
-          ['Race', schedule.race || { date: race.date || race.raceDate, time: race.time || race.raceTime }]
-        ];
-        candidates.forEach(([label, session]) => {
-          if (!session?.date) return;
-          const stamp = new Date(`${session.date}T${session.time || '12:00:00'}`).getTime();
-          // Don't show sessions that are clearly in the past; retain upcoming sessions only.
-          if (Number.isFinite(stamp) && stamp < now - 2 * 60 * 60 * 1000) return;
-          sessions.push({ raceName, venue, label, date: session.date, time: session.time || '', stamp: Number.isFinite(stamp) ? stamp : 0 });
-        });
-      });
-      sessions.sort((a, b) => a.stamp - b.stamp);
-      if (!sessions.length) throw new Error('Geen komende sessies gevonden');
-      const fragment = document.createDocumentFragment();
-      sessions.forEach((session) => {
-        const row = document.createElement('div');
-        row.className = 'event';
-        const top = document.createElement('div');
-        top.className = 'f1row';
-        const name = document.createElement('strong');
-        name.textContent = session.raceName;
-        const date = document.createElement('span');
-        date.className = 'date';
-        date.textContent = session.label;
-        top.append(name, date);
-        const details = document.createElement('div');
-        details.className = 'small';
-        details.textContent = nlDateTime(session.date, session.time) + (session.venue ? ` · ${session.venue}` : '');
-        row.append(top, details);
-        fragment.appendChild(row);
-      });
-      f1List.appendChild(fragment);
-      f1Status.textContent = `Kalender geladen (${sessions.length} komende sessies). Controleer altijd de Nederlandse uitzending.`;
-      const note = document.createElement('p');
-      note.className = 'small';
-      note.textContent = 'Tijden zijn omgerekend naar Nederlandse tijd wanneer de bron een tijd opgeeft. De API kan schemawijzigingen missen.';
-      f1List.appendChild(note);
-    } catch (error) {
-      f1Status.textContent = 'De automatische kalender is nu niet beschikbaar. Gebruik de officiële kalender hieronder.';
-      const explanation = document.createElement('p');
-      explanation.className = 'small';
-      explanation.textContent = 'Dit kan komen door een tijdelijke storing of een verbinding die de gegevensbron blokkeert.';
-      f1List.append(explanation, makeLink('Officiële Formule 1-kalender openen ↗', officialF1Url));
-    } finally {
-      clearTimeout(timeout);
-    }
-  }
-  const retry = $('#f1-retry');
-  if (retry) retry.addEventListener('click', loadF1);
-  loadF1();
-
-  const STORAGE_KEY = 'mollySportsEventsV3';
-  const form = $('#event-form');
-  const list = $('#event-list');
-  const clearButton = $('#clear-events');
-
-  function readEvents() {
-    try {
-      const stored = JSON.parse(localStorage.getItem(STORAGE_KEY) || '[]');
-      return Array.isArray(stored) ? stored.filter((item) => item && typeof item.id === 'string' && typeof item.title === 'string' && typeof item.date === 'string') : [];
-    } catch (_) {
-      return [];
-    }
-  }
-
-  function saveEvents(events) {
-    try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(events));
-      return true;
-    } catch (_) {
-      if (list) list.textContent = 'Opslaan lukt niet. Mogelijk is lokale opslag uitgeschakeld op dit apparaat.';
-      return false;
-    }
-  }
-
-  function renderEvents() {
-    if (!list) return;
-    const events = readEvents().sort((a, b) => a.date.localeCompare(b.date));
-    list.replaceChildren();
-    if (!events.length) {
-      list.textContent = 'Nog geen eigen evenementen toegevoegd.';
-      return;
-    }
-    events.forEach((event) => {
-      const item = document.createElement('div');
-      item.className = 'event';
-      const title = document.createElement('strong');
-      title.textContent = event.title;
-      const details = document.createElement('div');
-      details.className = 'small';
-      const parsed = new Date(event.date);
-      details.textContent = (Number.isNaN(parsed.getTime()) ? event.date : parsed.toLocaleString('nl-NL')) + ` · ${event.sport || 'Overig'}` + (event.channel ? ` · ${event.channel}` : '');
-      item.append(title, details);
-      if (event.notes) {
-        const notes = document.createElement('p');
-        notes.className = 'small';
-        notes.textContent = event.notes;
-        item.appendChild(notes);
-      }
-      const remove = document.createElement('button');
-      remove.className = 'secondary';
-      remove.type = 'button';
-      remove.textContent = 'Verwijderen';
-      remove.addEventListener('click', () => {
-        const remaining = readEvents().filter((saved) => saved.id !== event.id);
-        if (saveEvents(remaining)) renderEvents();
-      });
-      item.appendChild(remove);
-      list.appendChild(item);
-    });
-  }
-
-  if (form) form.addEventListener('submit', (event) => {
-    event.preventDefault();
-    const title = $('#event-title')?.value.trim() || '';
-    const date = $('#event-date')?.value || '';
-    if (!title || !date || Number.isNaN(new Date(date).getTime())) return;
-    const events = readEvents();
-    events.push({
-      id: (window.crypto && crypto.randomUUID) ? crypto.randomUUID() : `${Date.now()}-${Math.random().toString(36).slice(2)}`,
-      title,
-      date,
-      sport: $('#event-sport')?.value || 'Overig',
-      channel: $('#event-channel')?.value.trim() || '',
-      notes: $('#event-notes')?.value.trim() || ''
-    });
-    if (saveEvents(events)) {
-      form.reset();
-      renderEvents();
-    }
-  });
-
-  if (clearButton) clearButton.addEventListener('click', () => {
-    if (window.confirm('Alle eigen evenementen uit deze browser verwijderen?')) {
-      try { localStorage.removeItem(STORAGE_KEY); } catch (_) { /* show current view */ }
-      renderEvents();
-    }
-  });
-  renderEvents();
+'use strict';
+const $ = s => document.querySelector(s);
+const tabs = [...document.querySelectorAll('[role="tab"]')];
+function activateTab(tab){tabs.forEach(t=>{const on=t===tab;t.setAttribute('aria-selected',String(on));const p=document.getElementById(t.getAttribute('aria-controls'));if(p)p.hidden=!on;});}
+tabs.forEach(t=>t.addEventListener('click',()=>activateTab(t)));
+const competitions=[
+ {id:'ned.1',name:'Eredivisie',tv:'Nederlandse uitzender per wedstrijd controleren'},
+ {id:'eng.1',name:'Premier League',tv:'Nederlandse uitzender per wedstrijd controleren'},
+ {id:'esp.1',name:'La Liga',tv:'Nederlandse uitzender per wedstrijd controleren'},
+ {id:'ger.1',name:'Bundesliga',tv:'Nederlandse uitzender per wedstrijd controleren'},
+ {id:'ita.1',name:'Serie A',tv:'Nederlandse uitzender per wedstrijd controleren'},
+ {id:'fra.1',name:'Ligue 1',tv:'Nederlandse uitzender per wedstrijd controleren'},
+ {id:'ned.knvb_beker',name:'KNVB-beker',tv:'Nederlandse uitzender per wedstrijd controleren'},
+ {id:'eng.fa',name:'FA Cup',tv:'Nederlandse uitzender per wedstrijd controleren'},
+ {id:'eng.league_cup',name:'EFL Cup',tv:'Nederlandse uitzender per wedstrijd controleren'},
+ {id:'esp.copa_del_rey',name:'Copa del Rey',tv:'Nederlandse uitzender per wedstrijd controleren'},
+ {id:'ger.dfb_pokal',name:'DFB-Pokal',tv:'Nederlandse uitzender per wedstrijd controleren'},
+ {id:'ita.coppa_italia',name:'Coppa Italia',tv:'Nederlandse uitzender per wedstrijd controleren'},
+ {id:'fra.coupe_de_france',name:'Coupe de France',tv:'Nederlandse uitzender per wedstrijd controleren'},
+ {id:'uefa.champions',name:'Champions League',tv:'Nederlandse uitzender per wedstrijd controleren'},
+ {id:'uefa.europa',name:'Europa League',tv:'Nederlandse uitzender per wedstrijd controleren'},
+ {id:'uefa.europa.conf',name:'Conference League',tv:'Nederlandse uitzender per wedstrijd controleren'}
+];
+let allMatches=[],selected='all'; const list=$('#football-list'),status=$('#football-status');
+const fmtDate=iso=>new Intl.DateTimeFormat('nl-NL',{weekday:'short',day:'numeric',month:'short',timeZone:'Europe/Amsterdam'}).format(new Date(iso));
+const fmtTime=iso=>new Intl.DateTimeFormat('nl-NL',{hour:'2-digit',minute:'2-digit',timeZone:'Europe/Amsterdam'}).format(new Date(iso));
+function getComp(event){const id=event.league?.slug||event.league?.abbreviation||event.season?.slug||'';const title=event.name||event.shortName||'';return competitions.find(c=>id.toLowerCase().includes(c.id)||title.toLowerCase().includes(c.name.toLowerCase()))||null;}
+function parseEvent(event, comp){const compInfo=comp||getComp(event);const competitionName=compInfo?.name||event.league?.name||event.season?.name||'Voetbal';const competitors=event.competitions?.[0]?.competitors||[];const home=competitors.find(t=>t.homeAway==='home')||competitors[0];const away=competitors.find(t=>t.homeAway==='away')||competitors[1];if(!home||!away||!event.date)return null;const state=event.status?.type;return {id:event.id,date:event.date,home:home.team?.displayName||home.team?.name||'Thuis',away:away.team?.displayName||away.team?.name||'Uit',score:state?.completed?`${home.score??0} – ${away.score??0}`:'',status:state?.shortDetail||state?.detail||'',comp:competitionName,compId:compInfo?.id||'',tv:compInfo?.tv||'Uitzender per wedstrijd controleren'};}
+async function fetchCompetition(comp){const now=new Date(),end=new Date(now.getTime()+7*86400000);const ymd=d=>d.toISOString().slice(0,10).replaceAll('-','');const url=`https://site.api.espn.com/apis/site/v2/sports/soccer/${comp.id}/scoreboard?dates=${ymd(now)}-${ymd(end)}`;const r=await fetch(url,{cache:'no-store'});if(!r.ok)throw new Error(`${comp.name}: HTTP ${r.status}`);const data=await r.json();return (data.events||[]).map(e=>parseEvent(e,comp)).filter(Boolean);}
+function renderMatches(){list.replaceChildren();let matches=allMatches.filter(m=>selected==='all'||m.compId===selected);matches.sort((a,b)=>new Date(a.date)-new Date(b.date));if(!matches.length){list.innerHTML='<p class="small">Geen wedstrijden gevonden voor deze selectie in de komende zeven dagen. Probeer ‘Alles’ of ververs later.</p>';return;}const frag=document.createDocumentFragment();matches.forEach(m=>{const row=document.createElement('div');row.className='match';const top=document.createElement('div');top.className='match-top';const teams=document.createElement('div');teams.className='teams';teams.textContent=m.score?`${m.home} ${m.score} ${m.away}`:`${m.home} – ${m.away}`;const time=document.createElement('div');time.className='kickoff';time.textContent=fmtDate(m.date)+' · '+fmtTime(m.date);top.append(teams,time);const meta=document.createElement('div');meta.className='match-meta';meta.textContent=`${m.comp} · ${m.status||'Aftrap'} · TV: ${m.tv}`;row.append(top,meta);frag.append(row);});list.append(frag);}
+async function loadFootball(){status.textContent='Wedstrijden ophalen…';list.replaceChildren();try{const results=await Promise.allSettled(competitions.map(fetchCompetition));allMatches=[];const failures=[];results.forEach((r,i)=>{if(r.status==='fulfilled')allMatches.push(...r.value);else failures.push(competitions[i].name);});const seen=new Set();allMatches=allMatches.filter(m=>{if(seen.has(m.id))return false;seen.add(m.id);return true;});if(!allMatches.length)throw new Error('De scorebordfeed gaf geen wedstrijden terug.');status.textContent=`${allMatches.length} wedstrijden gevonden · komende 7 dagen`+(failures.length?` · Niet geladen: ${failures.join(', ')}`:'');renderMatches();}catch(e){status.textContent='De live wedstrijdfeed is nu niet bereikbaar. Controleer je internetverbinding en probeer opnieuw. Er worden bewust geen verzonnen wedstrijden getoond.';list.replaceChildren();}}
+$('#competition-buttons').addEventListener('click',e=>{const b=e.target.closest('button[data-comp]');if(!b)return;selected=b.dataset.comp;$('#competition-buttons').querySelectorAll('button').forEach(x=>x.classList.toggle('active',x===b));renderMatches();});$('#football-retry').addEventListener('click',loadFootball);
+// F1 calendar
+const f1Status=$('#f1-status'),f1List=$('#f1-list');const f1date=(d,t)=>{const date=new Date(`${d}T${t||'12:00:00Z'}`);return new Intl.DateTimeFormat('nl-NL',{weekday:'short',day:'numeric',month:'short',hour:'2-digit',minute:'2-digit',timeZone:'Europe/Amsterdam'}).format(date)};
+async function loadF1(){f1Status.textContent='Formule 1-kalender laden…';f1List.replaceChildren();try{const r=await fetch('https://f1api.dev/api/current',{cache:'no-store'});if(!r.ok)throw Error('API niet beschikbaar');const data=await r.json();const races=data.races||data.race||data.season?.races||[];const now=Date.now();let sessions=[];races.forEach(race=>{const s=race.schedule||{};[['Vrije training 1',s.fp1],['Vrije training 2',s.fp2],['Vrije training 3',s.fp3],['Sprint',s.sprintRace],['Kwalificatie',s.qualy||s.qualifying],['Race',s.race||{date:race.date,time:race.time}]].forEach(([label,v])=>{if(v?.date){const dt=new Date(`${v.date}T${v.time||'12:00:00Z'}`).getTime();if(dt>now-3600000)sessions.push({name:race.raceName||race.name||'Grand Prix',label,date:v.date,time:v.time||'',dt});}})});sessions.sort((a,b)=>a.dt-b.dt);if(!sessions.length)throw Error('Geen sessies gevonden');sessions.slice(0,16).forEach(s=>{const row=document.createElement('div');row.className='event';const strong=document.createElement('strong');strong.textContent=`${s.name} — ${s.label}`;const small=document.createElement('div');small.className='small';small.textContent=f1date(s.date,s.time);row.append(strong,small);f1List.append(row);});f1Status.textContent='Komende sessies (Nederlandse tijd waar beschikbaar).';}catch(e){f1Status.textContent='De automatische kalender is tijdelijk niet beschikbaar.';const a=document.createElement('a');a.href='https://www.formula1.com/en/racing/2026';a.target='_blank';a.rel='noopener';a.textContent='Bekijk de officiële Formule 1-kalender';f1List.append(a);}}
+$('#f1-retry').addEventListener('click',loadF1);
+// Custom events saved locally
+const eventForm=$('#event-form'),eventsEl=$('#custom-events');function getEvents(){try{return JSON.parse(localStorage.getItem('mollySportsEvents')||'[]')}catch{return []}}function drawEvents(){eventsEl.replaceChildren();getEvents().sort((a,b)=>a.date.localeCompare(b.date)).forEach((e,i)=>{const row=document.createElement('div');row.className='event';const strong=document.createElement('strong');strong.textContent=e.title;const small=document.createElement('div');small.className='small';small.textContent=new Date(e.date).toLocaleString('nl-NL');row.append(strong,small);if(e.note){const p=document.createElement('p');p.className='small';p.textContent=e.note;row.append(p)}const del=document.createElement('button');del.className='secondary';del.textContent='Verwijderen';del.addEventListener('click',()=>{const arr=getEvents();arr.splice(i,1);localStorage.setItem('mollySportsEvents',JSON.stringify(arr));drawEvents()});row.append(del);eventsEl.append(row);});}
+eventForm.addEventListener('submit',e=>{e.preventDefault();const arr=getEvents();arr.push({title:$('#event-title').value.trim(),date:$('#event-date').value,note:$('#event-note').value.trim()});localStorage.setItem('mollySportsEvents',JSON.stringify(arr));eventForm.reset();drawEvents();});
+loadFootball();loadF1();drawEvents();
 })();
