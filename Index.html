@@ -11,11 +11,12 @@
 </style></head>
 <body><main class="wrap">
 <header class="top"><div class="logo">M</div><div><div class="brand">Molly Sports</div><div class="sub">THE GREATEST PUB IN TOWN · SPORTGIDS</div></div><span class="pill">BASIS</span></header>
-<section class="hero"><div class="sub" id="today"></div><h1>Wat is er live?</h1><p>De sportgids voor achter de bar — snel zien wat je kunt opzetten.</p><div class="row"><button class="btn primary" onclick="showTab('events')">Bekijk programma ↓</button><button class="btn" onclick="refreshData()">↻ Vernieuwen</button></div><div class="source" id="updated">Sportdata wordt geladen…</div></section>
-<div id="dataNotice" class="notice">Beperkt tot jullie diensten: ESPN, Ziggo Sport, Viaplay, reguliere tv en Prime Video.</div>
+<section class="hero"><div class="sub" id="today"></div><h1>Wat is er live?</h1><p>De sportgids voor achter de bar — Nederlandse tv-gidsen, F1 en eigen notities.</p><div class="row"><button class="btn primary" onclick="showTab('events')">Bekijk programma ↓</button><button class="btn" onclick="refreshData()">↻ Vernieuwen</button></div><div class="source" id="updated">Sportdata wordt geladen…</div></section>
+<div id="dataNotice" class="notice">Voetbalprogramma en Nederlandse uitzendrechten worden gecontroleerd via Nederlandse tv-gidsen. We tonen geen willekeurige buitenlandse wedstrijden.</div>
 <div class="tabs"><button id="tabEvents" class="btn primary" onclick="showTab('events')">⚽ Sportprogramma</button><button id="tabSetup" class="btn" onclick="showTab('setup')">📦 Kastjes & apps</button><button id="tabManage" class="btn" onclick="showTab('manage')">＋ Eigen evenement</button><button id="tabF1" class="btn" onclick="showTab('f1')">🏁 Formule 1</button></div>
 <section id="events">
-<div class="section"><h2>Periode</h2><div class="filters" id="periodFilters"></div><h2>Filter op dienst</h2><div class="filters" id="filters"></div></div>
+<div class="card"><div class="cardtop"><div class="iconbox">🇳🇱</div><div><div class="name">Nederlands sportaanbod</div><div class="league">Actuele wedstrijden en zenders bij de gidsen bekijken</div></div></div><p class="smallmuted">De voetbalgids is de bron voor wedstrijden en Nederlandse zenders. De volledige wedstrijdlijst wordt niet automatisch in Molly Sports gekopieerd, omdat de gids geen bevestigde openbare gegevensfeed beschikbaar heeft.</p><div class="row" style="flex-wrap:wrap"><a class="btn primary" href="https://www.iservoetbalvanavond.nl/" target="_blank" rel="noopener">⚽ Voetbal op tv</a><a class="btn" href="https://www.tvgids.nl/sportgids/" target="_blank" rel="noopener">📺 Alle sport op tv</a><a class="btn" href="https://www.ziggosport.nl/programmagids/" target="_blank" rel="noopener">📡 Ziggo Sport gids</a></div></div>
+<div class="section"><h2>Eigen programma / notities</h2><p class="smallmuted">Alleen eigen ingevoerde evenementen verschijnen in de lijst hieronder. Zo tonen we geen wedstrijden met verzonnen zenders.</p><h2>Periode</h2><div class="filters" id="periodFilters"></div><h2>Filter op dienst</h2><div class="filters" id="filters"></div></div>
 <div class="row between"><h2 id="listTitle">Vandaag & live</h2><span id="count" class="smallmuted"></span></div>
 <div id="matches" class="matchgrid"></div>
 <div class="source">Automatische wedstrijddata is een hulpmiddel, geen bevestiging van Nederlandse uitzendrechten. Controleer de dienst bij twijfel.</div>
@@ -26,7 +27,7 @@
  <p class="smallmuted">Grand Prix-weekenden, trainingen, kwalificaties, sprintraces en races. Tijden worden waar beschikbaar naar Nederlandse tijd omgerekend.</p>
  <div id="f1Notice" class="notice">F1-kalender wordt geladen…</div>
  <div id="f1Matches"></div>
- <div class="source">Kalender via F1API.dev. De kalender geeft sessietijden weer waar beschikbaar; controleer Viaplay voor de daadwerkelijke uitzending.</div>
+ <div class="source">Kalender via F1API.dev. Sessietijden zijn geen bevestiging van de Nederlandse uitzending; controleer de Viaplay-gids.</div>
 </div>
 </section>
 <section id="setup" class="hidden">
@@ -52,7 +53,7 @@
 </div><div class="row"><button class="btn primary" onclick="addEvent()">Evenement opslaan</button><button class="btn" onclick="clearManual()">Wis handmatige evenementen</button></div></div>
 <div class="admin"><h3>Gegevens</h3><p class="smallmuted">Instellingen en handmatige evenementen worden in deze browser opgeslagen. Om alle medewerkers te synchroniseren, moet de app later online worden gezet met gedeelde opslag.</p></div>
 </section>
-<footer class="footer">Molly Sports · gratis basisversie · <a href="https://sportscore.com/" rel="dofollow" target="_blank">Powered by SportScore</a><br>Sportdata en uitzendrechten zijn aparte gegevensbronnen.</footer>
+<footer class="footer">Molly Sports · gratis basisversie · <a href="https://www.iservoetbalvanavond.nl/" target="_blank" rel="noopener">Voetbalgids</a> · <a href="https://www.tvgids.nl/sportgids/" target="_blank" rel="noopener">TVgids Sport</a><br>Sportdata en uitzendrechten zijn aparte gegevensbronnen.</footer>
 </main>
 <script>
 const SPORT_FILTERS=['Alles','Live','ESPN','Ziggo Sport','Viaplay','Reguliere tv','Prime Video'];
@@ -153,55 +154,10 @@ async function loadF1(){
 }
 async function refreshData(){
  const updated=document.getElementById('updated'), notice=document.getElementById('dataNotice');
- updated.textContent='Wedstrijden voor vandaag en de komende 7 dagen ophalen…';
- notice.className='notice';notice.textContent='SportScore wordt geraadpleegd…';
- const fmt=d=>`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
- const now=new Date();
- try{
-  const requests=[];
-  for(let offset=-2;offset<=7;offset++){
-   const d=new Date(now);d.setDate(now.getDate()+offset);const date=fmt(d);
-   requests.push((async()=>{
-    const urls=[
-     `https://sportscore.com/api/v1/fixtures/?sport=football&date=${date}&limit=100`,
-     `https://sportscore.com/api/v1/fixtures/?sport=football&date=${date}&status=${offset<0?'finished':'upcoming'}&limit=100`
-    ];
-    for(const url of urls){
-     try{
-      const response=await fetch(url,{cache:'no-store'});
-      if(!response.ok)continue;
-      const json=await response.json();
-      let list=null;
-      if(Array.isArray(json))list=json;
-      else if(json&&Array.isArray(json.matches))list=json.matches;
-      else if(json&&Array.isArray(json.fixtures))list=json.fixtures;
-      else if(json&&Array.isArray(json.results))list=json.results;
-      else if(json&&Array.isArray(json.data))list=json.data;
-      if(list!==null)return list;
-     }catch(error){}
-    }
-    return [];
-   })());
-  }
-  const groups=await Promise.all(requests), seen=new Set();
-  apiMatches=groups.flat().map(normalizeApi).filter(m=>{
-   const key=String(m.id)+'|'+String(m.time)+'|'+String(m.name);
-   if(seen.has(key))return false;seen.add(key);return true;
-  });
-  apiState=apiMatches.length?'ok':'empty';
-  updated.textContent=`Bijgewerkt ${new Date().toLocaleTimeString('nl-NL',{hour:'2-digit',minute:'2-digit'})} · ${apiMatches.length} wedstrijden gevonden`;
-  if(apiMatches.length){
-   notice.className='notice good';
-   notice.textContent=`✓ ${apiMatches.length} wedstrijden opgehaald. Ook wedstrijden zonder bekende Nederlandse zender worden getoond; controleer de tv-gids bij twijfel.`;
-  }else{
-   notice.className='notice';
-   notice.textContent='De aanvragen zijn uitgevoerd, maar leverden geen wedstrijden op. Controleer je internetverbinding of probeer later opnieuw.';
-  }
- }catch(error){
-  apiState='error';updated.textContent='Sportdata tijdelijk niet bereikbaar';
-  notice.className='notice';notice.textContent='De automatische wedstrijdagenda kon niet worden geladen. Probeer Vernieuwen opnieuw.';
- }
- renderMatches();
+ updated.textContent='Nederlandse tv-gidsen klaar om te openen';
+ notice.className='notice';
+ notice.textContent='Automatische wedstrijdfeed uitgeschakeld: er is geen bevestigde openbare feed van de Nederlandse tv-gids. Open de gids via de knoppen hierboven om actuele wedstrijden en zenders te controleren.';
+ apiMatches=[];apiState='manual-only';renderMatches();
 }
 function renderMatches(){
  const manual=getManual().map(x=>({...x,source:'Handmatig'}));
