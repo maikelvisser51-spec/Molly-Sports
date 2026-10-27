@@ -34,6 +34,7 @@
     }
     function parseESPN(e, comp) {
         const eventComp = e.league?.name || e.season?.name || comp.name;
+        console.log("eventcomp", eventComp);
         const teams = e.competitions?.[0]?.competitors || [];
         const h = teams.find(x => x.homeAway === 'home') || teams[0], a = teams.find(x => x.homeAway === 'away') || teams[1];
         if (!h || !a || !e.date) return null;
@@ -43,7 +44,6 @@
     }
     async function espnForComp(comp, days) {
         const base = `https://site.api.espn.com/apis/site/v2/sports/soccer/${comp.id}/scoreboard`;
-        console.log(base);
         const now = new Date(), end = new Date(now); end.setDate(end.getDate() + days - 1);
         const data = await fetchJSON(`${base}`);
         // Use one date-range request per competition to avoid flooding public feeds.
