@@ -20,7 +20,6 @@
         { id: 'ita.coppa_italia', leagueId: '3956', name: 'Coppa Italia', aliases: ['coppa italia'] },
         { id: 'fra.coupe_de_france', leagueId: '3952', name: 'Coupe de France', aliases: ['coupe de france'] }
     ];
-    const cupIds = new Set(comps.slice(9).map(c => c.id));
     const scoreboardUrl = 'https://site.api.espn.com/apis/site/v2/sports/soccer/all/scoreboard';
     let scoreboardData = null, matches = [], matchesByCompetition = new Map(), selected = 'all', loading = false;
     const footballStatus = $('#football-status'), footballList = $('#football-list');
@@ -63,6 +62,28 @@
             matchesByCompetition.set(match.compId, competitionMatches);
         });
     }
+    function renderCompetitionButtons() {
+        const container = $('#competition-buttons');
+        container.replaceChildren();
+        if (selected !== 'all' && !matchesByCompetition.has(selected)) selected = 'all';
+        const allButton = document.createElement('button');
+        allButton.type = 'button';
+        allButton.dataset.comp = 'all';
+        allButton.textContent = `Alles (${matches.length})`;
+        allButton.classList.toggle('active', selected === 'all');
+        container.append(allButton);
+        [...matchesByCompetition.entries()]
+            .map(([id, competitionMatches]) => ({ id, name: competitionMatches[0].comp, count: competitionMatches.length }))
+            .sort((a, b) => a.name.localeCompare(b.name, 'nl'))
+            .forEach(({ id, name, count }) => {
+                const button = document.createElement('button');
+                button.type = 'button';
+                button.dataset.comp = id;
+                button.textContent = `${name} (${count})`;
+                button.classList.toggle('active', selected === id);
+                container.append(button);
+            });
+    }
     async function loadScoreboard() {
         const data = await fetchJSON(scoreboardUrl);
         scoreboardData = data;
@@ -74,6 +95,7 @@
             return true;
         });
         groupMatchesByCompetition();
+        renderCompetitionButtons();
         return matches;
     }
     function isOngoing(m) { const s = String(m.stateCode || m.state || '').toLowerCase(); return s === 'in' || /live|in progress|halftime|half time|1st half|2nd half|1st period|2nd period|3rd period|extra time|overtime|being played|playing/.test(s); }
@@ -82,11 +104,7 @@
         footballList.replaceChildren();
         const days = $('#period').value === 'today' ? 1 : Number($('#period').value);
         const currentTime = Date.now(), cutoff = currentTime + days * 86400000;
-        const groupedMatches = selected === 'all'
-            ? matches
-            : selected === 'cups'
-                ? [...cupIds].flatMap(compId => matchesByCompetition.get(compId) || [])
-                : matchesByCompetition.get(selected) || [];
+        const groupedMatches = selected === 'all' ? matches : matchesByCompetition.get(selected) || [];
         let arr = groupedMatches.filter(m => {
             const time = Date.parse(m.date);
             const inPeriod = (time >= currentTime || isOngoing(m)) && time <= cutoff;
@@ -97,7 +115,7 @@
         const now = Date.now(); arr.forEach(m => { const row = document.createElement('article'); row.className = 'match'; const top = document.createElement('div'); top.className = 'match-top'; const names = document.createElement('div'); names.className = 'teams'; names.textContent = `${m.home}  –  ${m.away}`; const when = document.createElement('div'); when.className = 'when'; const dt = Date.parse(m.date); when.innerHTML = `<strong>${fmtTime(m.date)}</strong>${fmtDay(m.date)}`; top.append(names, when); const meta = document.createElement('div'); meta.className = 'meta'; const comp = document.createElement('span'); comp.className = 'tag'; comp.textContent = m.comp; meta.append(comp); const state = document.createElement('span'); state.className = 'tag'; state.textContent = isOngoing(m) ? '🔴 Bezig' : 'Binnenkort'; meta.append(state); const source = document.createElement('span'); source.className = 'tag'; source.textContent = m.source; meta.append(source); const tv = document.createElement('span'); tv.className = 'tag'; tv.textContent = 'Tv-zender niet bevestigd'; meta.append(tv); row.append(top, meta); footballList.append(row); });
     }
     function getCache() { try { const x = JSON.parse(localStorage.getItem('mollyFootballCacheV10') || 'null'); return x && Array.isArray(x.matches) ? x : null; } catch { return null; } }
-    function applyCache() { const c = getCache(); if (!c) return false; matches = c.matches; groupMatchesByCompetition(); $('#last-updated').textContent = `Laatste voetbaldata: ${new Date(c.savedAt).toLocaleTimeString('nl-NL', { hour: '2-digit', minute: '2-digit' })} (opgeslagen` + `)`; renderMatches(); return true; }
+    function applyCache() { const c = getCache(); if (!c) return false; matches = c.matches; groupMatchesByCompetition(); renderCompetitionButtons(); $('#last-updated').textContent = `Laatste voetbaldata: ${new Date(c.savedAt).toLocaleTimeString('nl-NL', { hour: '2-digit', minute: '2-digit' })} (opgeslagen` + `)`; renderMatches(); return true; }
     async function loadFootball() {
         if (loading) return; loading = true; const btn = $('#refresh-football'); btn.disabled = true; btn.textContent = 'Laden…'; setStatus('ESPN-scoreboard laden…'); footballList.replaceChildren();
         try {
