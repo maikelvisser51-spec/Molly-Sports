@@ -2,24 +2,6 @@
     'use strict';
     const $ = (s) => document.querySelector(s);
     const TZ = 'Europe/Amsterdam';
-    const comps = [
-        { id: 'ned.1', leagueId: '725', name: 'Eredivisie', aliases: ['eredivisie', 'dutch eredivisie'] },
-        { id: 'eng.1', leagueId: '700', name: 'Premier League', aliases: ['premier league', 'english premier league'] },
-        { id: 'esp.1', leagueId: '740', name: 'La Liga', aliases: ['la liga', 'primera division', 'laliga'] },
-        { id: 'ger.1', leagueId: '720', name: 'Bundesliga', aliases: ['bundesliga', 'german bundesliga'] },
-        { id: 'ita.1', leagueId: '730', name: 'Serie A', aliases: ['serie a', 'italian serie a'] },
-        { id: 'fra.1', leagueId: '710', name: 'Ligue 1', aliases: ['ligue 1', 'french ligue 1'] },
-        { id: 'uefa.champions', leagueId: '775', name: 'Champions League', aliases: ['uefa champions league', 'champions league'] },
-        { id: 'uefa.europa', leagueId: '776', name: 'Europa League', aliases: ['uefa europa league', 'europa league'] },
-        { id: 'uefa.europa.conf', leagueId: '20296', name: 'Conference League', aliases: ['uefa conference league', 'conference league'] },
-        { id: 'ned.cup', leagueId: '3957', name: 'KNVB-beker', aliases: ['knvb beker', 'knvb-beker', 'dutch cup'] },
-        { id: 'eng.fa', leagueId: '3918', name: 'FA Cup', aliases: ['fa cup', 'english fa cup'] },
-        { id: 'eng.league_cup', leagueId: '3920', name: 'EFL Cup', aliases: ['efl cup', 'league cup', 'carabao cup'] },
-        { id: 'esp.copa_del_rey', leagueId: '3951', name: 'Copa del Rey', aliases: ['copa del rey'] },
-        { id: 'ger.dfb_pokal', leagueId: '3954', name: 'DFB-Pokal', aliases: ['dfb pokal', 'dfb-pokal'] },
-        { id: 'ita.coppa_italia', leagueId: '3956', name: 'Coppa Italia', aliases: ['coppa italia'] },
-        { id: 'fra.coupe_de_france', leagueId: '3952', name: 'Coupe de France', aliases: ['coupe de france'] }
-    ];
     const scoreboardUrl = 'https://site.api.espn.com/apis/site/v2/sports/soccer/all/scoreboard';
     let scoreboardData = null, matches = [], matchesByCompetition = new Map(), selected = 'all', loading = false;
     const footballStatus = $('#football-status'), footballList = $('#football-list');
@@ -35,14 +17,18 @@
     function competitionForEvent(e) {
         const eventUid = e.uid || e.competitions?.[0]?.uid || '';
         const leagueId = String(eventUid).match(/~l:(\d+)~/)?.[1];
-        const note = e.competitions?.[0]?.altGameNote || '';
-        const known = comps.find(comp => comp.leagueId === leagueId);
-        if (known) return known;
-        const normalizedNote = note.toLowerCase();
-        return comps.find(comp => comp.aliases.some(alias => normalizedNote.includes(alias))) || {
-            id: leagueId || 'unknown',
-            name: note || 'Onbekende competitie',
-            aliases: []
+        const competition = e.competitions?.[0] || {};
+        const name = [
+            e.league?.name,
+            competition.league?.name,
+            competition.altGameNote,
+            e.season?.name,
+            e.season?.slug,
+            leagueId && `League ${leagueId}`
+        ].find(value => typeof value === 'string' && value.trim()) || 'Unknown competition';
+        return {
+            id: leagueId || name.toLowerCase().replace(/[^a-z0-9]+/gi, '-'),
+            name: name.trim()
         };
     }
     function parseESPN(e) {
