@@ -43,7 +43,7 @@
         return { id: String(e.id || `${e.date}-${h.team?.id}-${a.team?.id}`), date: e.date, home: h.team?.displayName || h.team?.name || 'Thuis', away: a.team?.displayName || a.team?.name || 'Uit', homeScore: scored ? hs : null, awayScore: scored ? as : null, comp: comp.name || eventComp, compId: comp.id, source: 'ESPN', state: state.shortDetail || state.detail || state.description || '', stateCode: state.state || '' };
     }
     async function espnForComp(comp, days) {
-        const base = `https://site.api.espn.com/apis/site/v2/sports/soccer/${comp.id}/scoreboard`;
+        const base = `https://site.api.espn.com/apis/site/v2/sports/soccer/all/scoreboard`;
         const now = new Date(), end = new Date(now); end.setDate(end.getDate() + days - 1);
         const data = await fetchJSON(`${base}`);
         // Use one date-range request per competition to avoid flooding public feeds.
