@@ -22,8 +22,7 @@
     ];
     const cupIds = new Set(comps.slice(9).map(c => c.id));
     const scoreboardUrl = 'https://site.api.espn.com/apis/site/v2/sports/soccer/all/scoreboard';
-    const scoreboardDays = 7;
-    let scoreboardData = null, matches = [], selected = 'all', loading = false;
+    let scoreboardData = null, matches = [], matchesByCompetition = new Map(), selected = 'all', loading = false;
     const footballStatus = $('#football-status'), footballList = $('#football-list');
     const fmtDay = d => new Intl.DateTimeFormat('nl-NL', { weekday: 'short', day: 'numeric', month: 'short', timeZone: TZ }).format(new Date(d));
     const fmtTime = d => new Intl.DateTimeFormat('nl-NL', { hour: '2-digit', minute: '2-digit', timeZone: TZ }).format(new Date(d));
@@ -56,12 +55,16 @@
         const scored = hs !== undefined && as !== undefined && hs !== null && as !== null && hs !== '' && as !== '';
         return { id: String(e.id || `${e.date}-${h.team?.id}-${a.team?.id}`), date: e.date, home: h.team?.displayName || h.team?.name || 'Thuis', away: a.team?.displayName || a.team?.name || 'Uit', homeScore: scored ? hs : null, awayScore: scored ? as : null, comp: comp.name, compId: comp.id, source: 'ESPN', state: state.shortDetail || state.detail || state.description || '', stateCode: state.state || '' };
     }
+    function groupMatchesByCompetition() {
+        matchesByCompetition = new Map();
+        matches.forEach(match => {
+            const competitionMatches = matchesByCompetition.get(match.compId) || [];
+            competitionMatches.push(match);
+            matchesByCompetition.set(match.compId, competitionMatches);
+        });
+    }
     async function loadScoreboard() {
-        const start = localDateKey(new Date()).replace(/-/g, '');
-        const endDate = new Date();
-        endDate.setDate(endDate.getDate() + scoreboardDays - 1);
-        const end = localDateKey(endDate).replace(/-/g, '');
-        const data = await fetchJSON(`${scoreboardUrl}?dates=${start}-${end}&limit=1000`);
+        const data = await fetchJSON(scoreboardUrl);
         scoreboardData = data;
         const events = Array.isArray(data.events) ? data.events : [];
         const seen = new Set();
@@ -70,6 +73,7 @@
             seen.add(match.id);
             return true;
         });
+        groupMatchesByCompetition();
         return matches;
     }
     function isOngoing(m) { const s = String(m.stateCode || m.state || '').toLowerCase(); return s === 'in' || /live|in progress|halftime|half time|1st half|2nd half|1st period|2nd period|3rd period|extra time|overtime|being played|playing/.test(s); }
@@ -78,18 +82,22 @@
         footballList.replaceChildren();
         const days = $('#period').value === 'today' ? 1 : Number($('#period').value);
         const currentTime = Date.now(), cutoff = currentTime + days * 86400000;
-        let arr = matches.filter(m => {
+        const groupedMatches = selected === 'all'
+            ? matches
+            : selected === 'cups'
+                ? [...cupIds].flatMap(compId => matchesByCompetition.get(compId) || [])
+                : matchesByCompetition.get(selected) || [];
+        let arr = groupedMatches.filter(m => {
             const time = Date.parse(m.date);
             const inPeriod = (time >= currentTime || isOngoing(m)) && time <= cutoff;
-            const inCompetition = selected === 'all' || (selected === 'cups' ? cupIds.has(m.compId) : m.compId === selected);
-            return inPeriod && inCompetition;
+            return inPeriod;
         });
         arr.sort((a, b) => Date.parse(a.date) - Date.parse(b.date));
         if (!arr.length) { const box = document.createElement('div'); box.className = 'empty'; box.innerHTML = '<div class="emoji">⚽</div><h3>Geen wedstrijden gevonden</h3><p>De bronnen hebben voor deze selectie geen wedstrijden teruggegeven. Probeer een andere periode of ververs later.</p>'; footballList.append(box); return; }
         const now = Date.now(); arr.forEach(m => { const row = document.createElement('article'); row.className = 'match'; const top = document.createElement('div'); top.className = 'match-top'; const names = document.createElement('div'); names.className = 'teams'; names.textContent = `${m.home}  –  ${m.away}`; const when = document.createElement('div'); when.className = 'when'; const dt = Date.parse(m.date); when.innerHTML = `<strong>${fmtTime(m.date)}</strong>${fmtDay(m.date)}`; top.append(names, when); const meta = document.createElement('div'); meta.className = 'meta'; const comp = document.createElement('span'); comp.className = 'tag'; comp.textContent = m.comp; meta.append(comp); const state = document.createElement('span'); state.className = 'tag'; state.textContent = isOngoing(m) ? '🔴 Bezig' : 'Binnenkort'; meta.append(state); const source = document.createElement('span'); source.className = 'tag'; source.textContent = m.source; meta.append(source); const tv = document.createElement('span'); tv.className = 'tag'; tv.textContent = 'Tv-zender niet bevestigd'; meta.append(tv); row.append(top, meta); footballList.append(row); });
     }
     function getCache() { try { const x = JSON.parse(localStorage.getItem('mollyFootballCacheV10') || 'null'); return x && Array.isArray(x.matches) ? x : null; } catch { return null; } }
-    function applyCache() { const c = getCache(); if (!c) return false; matches = c.matches; $('#last-updated').textContent = `Laatste voetbaldata: ${new Date(c.savedAt).toLocaleTimeString('nl-NL', { hour: '2-digit', minute: '2-digit' })} (opgeslagen` + `)`; renderMatches(); return true; }
+    function applyCache() { const c = getCache(); if (!c) return false; matches = c.matches; groupMatchesByCompetition(); $('#last-updated').textContent = `Laatste voetbaldata: ${new Date(c.savedAt).toLocaleTimeString('nl-NL', { hour: '2-digit', minute: '2-digit' })} (opgeslagen` + `)`; renderMatches(); return true; }
     async function loadFootball() {
         if (loading) return; loading = true; const btn = $('#refresh-football'); btn.disabled = true; btn.textContent = 'Laden…'; setStatus('ESPN-scoreboard laden…'); footballList.replaceChildren();
         try {
