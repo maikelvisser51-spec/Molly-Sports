@@ -33,12 +33,17 @@
     }
     function parseESPN(e) {
         const comp = competitionForEvent(e);
-        const teams = e.competitions?.[0]?.competitors || [];
+        const competition = e.competitions?.[0] || {};
+        const broadcasts = [
+            ...(Array.isArray(competition.broadcasts) ? competition.broadcasts.flatMap(item => item.names || []) : []),
+            ...(Array.isArray(competition.geoBroadcasts) ? competition.geoBroadcasts.map(item => item.media?.shortName) : [])
+        ].filter((name, index, names) => typeof name === 'string' && name.trim() && names.indexOf(name) === index);
+        const teams = competition.competitors || [];
         const h = teams.find(x => x.homeAway === 'home') || teams[0], a = teams.find(x => x.homeAway === 'away') || teams[1];
         if (!h || !a || !e.date) return null;
         const state = e.status?.type || {}; const hs = h.score, as = a.score;
         const scored = hs !== undefined && as !== undefined && hs !== null && as !== null && hs !== '' && as !== '';
-        return { id: String(e.id || `${e.date}-${h.team?.id}-${a.team?.id}`), date: e.date, home: h.team?.displayName || h.team?.name || 'Thuis', away: a.team?.displayName || a.team?.name || 'Uit', homeScore: scored ? hs : null, awayScore: scored ? as : null, comp: comp.name, compId: comp.id, source: 'ESPN', state: state.shortDetail || state.detail || state.description || '', stateCode: state.state || '' };
+        return { id: String(e.id || `${e.date}-${h.team?.id}-${a.team?.id}`), date: e.date, home: h.team?.displayName || h.team?.name || 'Thuis', away: a.team?.displayName || a.team?.name || 'Uit', homeScore: scored ? hs : null, awayScore: scored ? as : null, comp: comp.name, compId: comp.id, broadcasts, source: 'ESPN', state: state.shortDetail || state.detail || state.description || '', stateCode: state.state || '' };
     }
     function groupMatchesByCompetition() {
         matchesByCompetition = new Map();
@@ -98,7 +103,7 @@
         });
         arr.sort((a, b) => Date.parse(a.date) - Date.parse(b.date));
         if (!arr.length) { const box = document.createElement('div'); box.className = 'empty'; box.innerHTML = '<div class="emoji">⚽</div><h3>Geen wedstrijden gevonden</h3><p>De bronnen hebben voor deze selectie geen wedstrijden teruggegeven. Probeer een andere periode of ververs later.</p>'; footballList.append(box); return; }
-        const now = Date.now(); arr.forEach(m => { const row = document.createElement('article'); row.className = 'match'; const top = document.createElement('div'); top.className = 'match-top'; const names = document.createElement('div'); names.className = 'teams'; names.textContent = `${m.home}  –  ${m.away}`; const when = document.createElement('div'); when.className = 'when'; const dt = Date.parse(m.date); when.innerHTML = `<strong>${fmtTime(m.date)}</strong>${fmtDay(m.date)}`; top.append(names, when); const meta = document.createElement('div'); meta.className = 'meta'; const comp = document.createElement('span'); comp.className = 'tag'; comp.textContent = m.comp; meta.append(comp); const state = document.createElement('span'); state.className = 'tag'; state.textContent = isOngoing(m) ? '🔴 Bezig' : 'Binnenkort'; meta.append(state); const source = document.createElement('span'); source.className = 'tag'; source.textContent = m.source; meta.append(source); const tv = document.createElement('span'); tv.className = 'tag'; tv.textContent = 'Tv-zender niet bevestigd'; meta.append(tv); row.append(top, meta); footballList.append(row); });
+        const now = Date.now(); arr.forEach(m => { const row = document.createElement('article'); row.className = 'match'; const top = document.createElement('div'); top.className = 'match-top'; const names = document.createElement('div'); names.className = 'teams'; names.textContent = `${m.home}  –  ${m.away}`; const when = document.createElement('div'); when.className = 'when'; const dt = Date.parse(m.date); when.innerHTML = `<strong>${fmtTime(m.date)}</strong>${fmtDay(m.date)}`; top.append(names, when); const meta = document.createElement('div'); meta.className = 'meta'; const comp = document.createElement('span'); comp.className = 'tag'; comp.textContent = m.comp; meta.append(comp); const state = document.createElement('span'); state.className = 'tag'; state.textContent = isOngoing(m) ? '🔴 Bezig' : 'Binnenkort'; meta.append(state); const source = document.createElement('span'); source.className = 'tag'; source.textContent = m.source; meta.append(source); const tv = document.createElement('span'); tv.className = 'tag'; tv.textContent = m.broadcasts?.length ? `Te zien via ${m.broadcasts.join(', ')}` : 'Zender niet bevestigd'; meta.append(tv); row.append(top, meta); footballList.append(row); });
     }
     function getCache() { try { const x = JSON.parse(localStorage.getItem('mollyFootballCacheV10') || 'null'); return x && Array.isArray(x.matches) ? x : null; } catch { return null; } }
     function applyCache() { const c = getCache(); if (!c) return false; matches = c.matches; groupMatchesByCompetition(); renderCompetitionButtons(); $('#last-updated').textContent = `Laatste voetbaldata: ${new Date(c.savedAt).toLocaleTimeString('nl-NL', { hour: '2-digit', minute: '2-digit' })} (opgeslagen` + `)`; renderMatches(); return true; }
